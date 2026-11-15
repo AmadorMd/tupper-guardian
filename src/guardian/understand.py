@@ -15,7 +15,9 @@ from botocore.config import Config
 
 from guardian import telegram
 
-INTENTS = {"store", "consumed", "list", "unknown"}
+INTENTS = {"store", "consumed", "discarded", "list", "unknown"}
+INVITE_COMMANDS = {"/familiar", "/familia", "/invitar"}
+LIST_COMMANDS = {"/refri", "/lista"}
 MAX_FOOD_LENGTH = 60
 MAX_TEXT_LENGTH = 500
 MAX_PHOTO_SIDE = 1280
@@ -31,11 +33,12 @@ _CATEGORY_LINES = "\n".join(
 SYSTEM_PROMPT = f"""You classify messages sent by Spanish-speaking users to an assistant that tracks leftovers stored in the refrigerator.
 
 Reply with ONLY one JSON object and nothing else:
-{{"intent": "store" | "consumed" | "list" | "unknown", "food": "<food name>", "category": "<category>"}}
+{{"intent": "store" | "consumed" | "discarded" | "list" | "unknown", "food": "<food name>", "category": "<category>"}}
 
 Intents:
 - store: the user says they put food in the fridge, or sends a photo of food or a food container.
-- consumed: the user says they ate, finished, or threw away a food.
+- consumed: the user says they ate or finished a food.
+- discarded: the user says they threw a food away.
 - list: the user asks what they have stored.
 - unknown: anything else, or a photo that does not show food.
 
@@ -68,8 +71,10 @@ def _command(text):
     argument = argument.strip()
     if command == "/start" and argument.startswith(CAREGIVER_PREFIX):
         return {"intent": "link", "code": argument[len(CAREGIVER_PREFIX):]}
-    if command == "/familiar":
+    if command in INVITE_COMMANDS:
         return {"intent": "invite"}
+    if command in LIST_COMMANDS:
+        return {"intent": "list"}
     return {"intent": "help"}
 
 

@@ -85,13 +85,13 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 <header>
   <p class="eyebrow">Architecture guide · serverless on AWS</p>
   <h1>Tupper Guardian</h1>
-  <p class="lede">A Telegram bot that remembers what you put in the fridge, warns you before it goes bad, and asks what happened to it. Built for older adults: no app, no forms. This page explains how every piece fits together.</p>
+  <p class="lede">A Telegram bot that keeps track of what is in the family fridge, warns before food goes bad, and asks what happened to it. A fridge can be shared by invitation, so a family manages it together. Built for older adults: no app, no forms. This page explains how every piece fits together.</p>
   <dl class="facts">
     <div><dt>Lambda functions</dt><dd>3</dd></div>
     <div><dt>State machine</dt><dd>1</dd></div>
     <div><dt>DynamoDB tables</dt><dd>2</dd></div>
     <div><dt>Stack resources</dt><dd>17</dd></div>
-    <div><dt>Unit tests</dt><dd>84</dd></div>
+    <div><dt>Unit tests</dt><dd>113</dd></div>
     <div><dt>Servers</dt><dd>0</dd></div>
   </dl>
   <nav aria-label="Contents">
@@ -183,7 +183,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
     <li>API Gateway calls <code>StartExecution</code> with the update as input and names the execution <code>tg-&lt;update_id&gt;</code>. If Telegram redelivers the same update, the name already exists and no second execution starts. API Gateway always answers <code>200</code>.</li>
     <li>The <code>Route</code> state looks at the update: a button press goes to <code>ResolveButton</code>, a message goes to <code>Understand</code>.</li>
     <li><code>understand</code> handles slash commands itself and sends free text or a photo to Bedrock. It returns <code>{intent, food, category}</code>, already validated.</li>
-    <li><code>ByIntent</code> branches: store, consumed, list, invite, link, or a plain reply (help, unknown, voice not supported).</li>
+    <li><code>ByIntent</code> branches: store, eaten or thrown away, list, invite, link, or a plain reply (help, unknown, voice not supported).</li>
     <li>For a store, <code>inventory</code> looks up the shelf life, writes the item and returns its two timestamps: when to remind and when it expires.</li>
     <li><code>notify</code> sends the confirmation as text and as a voice note. The execution then stays alive, waiting.</li>
   </ol>
@@ -191,10 +191,10 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 
 <section id="lifecycle">
   <h2>Life of a stored item</h2>
-  <p>Each stored item keeps one execution paused until its deadline. After every wait the workflow re-reads the item from DynamoDB, so something you already ate triggers nothing.</p>
+  <p>Each stored item keeps one execution paused until its deadline. After every wait the workflow re-reads the item from DynamoDB, so something already eaten triggers nothing. Reminders and questions go to whoever stored the item. Nothing leaves the fridge by silence: an unanswered item stays on the list, flagged for review.</p>
   <figure>
     <div class="scroll">
-      <svg viewBox="0 0 824 320" role="img" aria-label="Item lifecycle: stored, reminder, up to three questions, then closed by an answer or expired without one">
+      <svg viewBox="0 0 824 320" role="img" aria-label="Item lifecycle: stored, reminder, up to three questions, then closed by an answer or left flagged for review without one">
         <path class="edge" d="M140 57H173" marker-end="url(#ah)"/><text class="l" x="157" y="20">wait</text>
         <path class="edge" d="M305 57H338" marker-end="url(#ah)"/><text class="l" x="322" y="20">wait</text>
         <path class="edge" d="M470 57H503" marker-end="url(#ah)"/><text class="l" x="487" y="20">Sigue ahí</text>
@@ -218,21 +218,21 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
         <rect class="box" x="340" y="150" width="260" height="54" rx="6"/>
         <text class="t" x="470" y="173">Button pressed</text><text class="s" x="470" y="190">eaten or thrown away → item closed</text>
         <rect class="box-warn" x="620" y="150" width="190" height="54" rx="6"/>
-        <text class="t" x="715" y="173">No answer in time</text><text class="s" x="715" y="190">item marked as expired</text>
+        <text class="t" x="715" y="173">No answer in time</text><text class="s" x="715" y="190">stays, flagged for review</text>
         <rect class="box" x="620" y="240" width="190" height="54" rx="6"/>
-        <text class="t" x="715" y="263">Family member alerted</text><text class="s" x="715" y="280">or an invitation to add one</text>
+        <text class="t" x="715" y="263">Other members alerted</text><text class="s" x="715" y="280">or an invitation to share</text>
       </svg>
     </div>
-    <figcaption>One-day items skip the reminder, because it would fire immediately. Any of the three questions can end with a button press or with a timeout.</figcaption>
+    <figcaption>One-day items skip the reminder, because it would fire immediately. Any of the three questions can end with a button press or with a timeout. Before each question the execution takes the person's question turn, so two questions are never open at once.</figcaption>
   </figure>
   <div class="scroll">
     <table>
-      <thead><tr><th>Item status</th><th>Set when</th></tr></thead>
+      <thead><tr><th>Item state</th><th>Set when</th></tr></thead>
       <tbody>
-        <tr><td><code>ACTIVE</code></td><td>The item is stored and nobody has resolved it</td></tr>
-        <tr><td><code>CONSUMED</code></td><td>The user says they ate it, by button or by text</td></tr>
-        <tr><td><code>DISCARDED</code></td><td>The user says they threw it away</td></tr>
-        <tr><td><code>EXPIRED</code></td><td>A question went unanswered, or “Sigue ahí” was pressed past the limit</td></tr>
+        <tr><td><code>ACTIVE</code></td><td>The item is in the fridge and nobody has resolved it</td></tr>
+        <tr><td><code>ACTIVE</code> + <code>needs_review</code></td><td>A question went unanswered. The item stays on the list under “Vencidos, por revisar”</td></tr>
+        <tr><td><code>CONSUMED</code></td><td>Someone says it was eaten, by button or by text</td></tr>
+        <tr><td><code>DISCARDED</code></td><td>Someone says it was thrown away, by button or by text</td></tr>
       </tbody>
     </table>
   </div>
@@ -246,14 +246,23 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
     <li>The user taps a button. Telegram sends a new update, which starts a second, short execution.</li>
     <li>That execution calls <code>inventory</code> to apply the button with a conditional write. The call returns the saved token and removes it from the item.</li>
     <li>The short execution calls <code>SendTaskSuccess</code> with the token. The paused execution wakes up with the answer.</li>
-    <li>If nobody answers within the timeout, the pause ends with <code>States.Timeout</code> and the workflow moves to <code>Expire</code>.</li>
+    <li>If nobody answers within the timeout, the pause ends with <code>States.Timeout</code> and the workflow moves to <code>Escalate</code>.</li>
   </ol>
+  <h3>One question at a time</h3>
+  <p>Several items often expire together, and a burst of questions gets lost in the chat. So each person has one question turn. It is a slot on that person's profile, taken with a conditional write before the question is sent.</p>
+  <ul>
+    <li><strong>Turn taken:</strong> the question goes out and says how many more items are waiting.</li>
+    <li><strong>Turn busy:</strong> the execution saves a wake-up token on its item and pauses in <code>WaitTurn</code>.</li>
+    <li><strong>Turn freed:</strong> an answer or a timeout releases the slot and wakes the item that expired first, with <code>SendTaskSuccess</code>.</li>
+    <li><strong>Fallback:</strong> a waiting execution also retries on its own every 15 minutes (every 5 seconds in demo mode), and a turn nobody released expires by itself. A failed execution can never block the questions behind it.</li>
+  </ul>
   <h3>Rules built on top of the pause</h3>
   <ul>
     <li><strong>“Sigue ahí” postpones the question one day, twice at most.</strong> The workflow counts the questions in a variable and flags the third as <code>last_chance</code>.</li>
     <li><strong>The last call has two buttons only:</strong> “Ya me lo comí” and “Ya lo tiré”. The goal is to always learn how the food ended up.</li>
-    <li><strong>Eating food a full day past its deadline is not celebrated.</strong> It does not count as a rescued container. The reply, sent as text and voice, says that throwing food away is hard and that this is about health.</li>
-    <li><strong>An unanswered item escalates.</strong> It is marked expired and the linked family member gets a message. With nobody linked, the bot explains what <code>/familiar</code> is for and invites the user to add someone.</li>
+    <li><strong>Eating food a full day past its deadline gets a health message.</strong> The reply, sent as text and voice, says that throwing food away is hard and that this is about health.</li>
+    <li><strong>An unanswered item is escalated, not removed.</strong> It stays in the fridge flagged for review, and every other member of the fridge gets a message. With nobody else in the fridge, the bot explains what <code>/familiar</code> is for and invites the user to share it.</li>
+    <li><strong>Flagged items are reviewed one by one.</strong> The list offers a “Revisar vencidos” button. Each answer brings the next flagged item, asked in neutral words because a relative may be the one answering.</li>
     <li><strong>A second tap is harmless.</strong> The conditional write fails and the bot answers that the item was already resolved.</li>
   </ul>
 </section>
@@ -265,8 +274,8 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
       <thead><tr><th>Function</th><th>Does</th><th>Can access</th><th>Timeout</th></tr></thead>
       <tbody>
         <tr><td><code>understand</code></td><td>Turns a Telegram message into a validated intent. Commands are handled without the model.</td><td>Bedrock <code>InvokeModel</code>, bot token in SSM</td><td class="num">30 s</td></tr>
-        <tr><td><code>inventory</code></td><td>Every DynamoDB state change: store, consume, list, resolve a button, expire, invite, link.</td><td>Read and write on the items table, read on the shelf-life table</td><td class="num">15 s</td></tr>
-        <tr><td><code>notify</code></td><td>Every outbound message: text, buttons, voice notes. Saves task tokens.</td><td><code>UpdateItem</code> on the items table, Polly, bot token in SSM</td><td class="num">25 s</td></tr>
+        <tr><td><code>inventory</code></td><td>Every DynamoDB state change: store, consume, list, resolve a button, question turns, escalate, invite, link.</td><td>Read and write on the items table, read on the shelf-life table</td><td class="num">15 s</td></tr>
+        <tr><td><code>notify</code></td><td>Every outbound message, to one chat or to several members: text, buttons, voice notes. Saves task tokens.</td><td><code>UpdateItem</code> on the items table, Polly, bot token in SSM</td><td class="num">25 s</td></tr>
       </tbody>
     </table>
   </div>
@@ -275,17 +284,19 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 
 <section id="data">
   <h2>Data model</h2>
-  <p>The items table uses <code>chat_id</code> as partition key and <code>item_id</code> as sort key. Three kinds of record share it.</p>
+  <p>A fridge is one partition of the items table. The partition key is the chat id of whoever started the fridge, and <code>item_id</code> is the sort key. Each person's profile says which fridge they belong to: their own by default, or the one they joined through an invitation.</p>
   <div class="scroll">
     <table>
       <thead><tr><th>Record</th><th>Key</th><th>Main attributes</th></tr></thead>
       <tbody>
-        <tr><td>Stored item</td><td><code>&lt;chat&gt;</code> / <code>T#&lt;random id&gt;</code></td><td><code>food</code>, <code>category</code>, <code>status</code>, <code>stored_at</code>, <code>expires_at</code>, <code>expires_epoch</code>, <code>task_token</code> while a question is open</td></tr>
-        <tr><td>Profile</td><td><code>&lt;chat&gt;</code> / <code>PROFILE</code></td><td><code>first_name</code>, <code>rescued_count</code>, <code>caregiver_chat_id</code></td></tr>
-        <tr><td>Invitation</td><td><code>INVITE</code> / <code>&lt;one-time code&gt;</code></td><td><code>owner_chat_id</code>, <code>ttl</code> (7 days, removed by DynamoDB TTL)</td></tr>
+        <tr><td>Stored item</td><td><code>&lt;fridge&gt;</code> / <code>T#&lt;random id&gt;</code></td><td><code>food</code>, <code>category</code>, <code>status</code>, <code>stored_by</code>, <code>expires_epoch</code>, <code>needs_review</code>, <code>task_token</code> while a question is open, <code>turn_token</code> while waiting for the turn</td></tr>
+        <tr><td>Profile</td><td><code>&lt;chat&gt;</code> / <code>PROFILE</code></td><td><code>first_name</code>, <code>fridge_id</code>, and the question turn: <code>asking</code>, <code>asking_until</code></td></tr>
+        <tr><td>Fridge</td><td><code>&lt;fridge&gt;</code> / <code>FRIDGE</code></td><td><code>members</code>, the set of chats that share it</td></tr>
+        <tr><td>Invitation</td><td><code>INVITE</code> / <code>&lt;one-time code&gt;</code></td><td><code>fridge_id</code>, <code>inviter_name</code>, <code>ttl</code> (7 days, removed by DynamoDB TTL)</td></tr>
       </tbody>
     </table>
   </div>
+  <p>Every member sees the same list and can resolve any item. Any member can invite. Joining another fridge leaves the previous one.</p>
   <p>The shelf-life table maps 29 food categories to a conservative number of days. Examples: raw poultry, raw fish and guacamole 1 day; most cooked dishes 3; fresh cheese 5; hard-boiled eggs 7; hard cheese 21. A food outside the list gets 2 days, and the bot says it used a short default.</p>
 </section>
 
@@ -307,8 +318,8 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
     <li><strong>Webhook:</strong> Telegram cannot sign requests, so the control is an unguessable path segment plus throttling at 10 requests per second (burst 20).</li>
     <li><strong>Bot token:</strong> an SSM <code>SecureString</code>, read once per execution environment. Error messages report the API method and Telegram's description, never the URL that embeds the token. A test pins this.</li>
     <li><strong>Least privilege:</strong> each function has its own role. The API Gateway role can only start this state machine.</li>
-    <li><strong>Button data is untrusted:</strong> it is parsed, length-checked and applied only to items in the sender's own chat.</li>
-    <li><strong>Invitations:</strong> a random one-time code, not the owner's chat id, so a guessed id cannot subscribe a stranger. Nobody can link themselves as their own family member.</li>
+    <li><strong>Button data is untrusted:</strong> it is parsed, length-checked and applied only to items in the fridge the sender belongs to.</li>
+    <li><strong>Invitations:</strong> the only way into a fridge. Each is a random code that works once and expires in 7 days, so a guessed chat id cannot join a stranger's fridge.</li>
     <li><strong>Data at rest:</strong> the items table is encrypted and uses on-demand capacity.</li>
   </ul>
 </section>
@@ -321,7 +332,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
       <tbody>
         <tr><td><code>AWS_REGION</code></td><td>CLI region, then <code>us-east-1</code></td><td>Where the stack is deployed</td></tr>
         <tr><td><code>SECONDS_PER_DAY</code></td><td class="num">86400</td><td>Length of a “day”. A small value speeds up demos</td></tr>
-        <tr><td><code>ASK_TIMEOUT_SECONDS</code></td><td class="num">21600</td><td>How long a question waits before the item expires (6 hours)</td></tr>
+        <tr><td><code>ASK_TIMEOUT_SECONDS</code></td><td class="num">21600</td><td>How long a question waits before the item is flagged and the family is told (6 hours)</td></tr>
         <tr><td><code>MODEL_ID</code></td><td><code>us.amazon.nova-lite-v1:0</code></td><td>Bedrock model or inference profile. Must accept images</td></tr>
         <tr><td><code>VOICE_ENABLED</code></td><td><code>true</code></td><td>Send voice notes with Polly</td></tr>
         <tr><td><code>STACK_NAME</code></td><td><code>tupper-guardian</code></td><td>CloudFormation stack name</td></tr>
@@ -365,11 +376,11 @@ SECONDS_PER_DAY=20 ASK_TIMEOUT_SECONDS=45 ./scripts/deploy.sh</code></pre>
     <table>
       <thead><tr><th>File</th><th>Tests</th><th>What it pins</th></tr></thead>
       <tbody>
-        <tr><td><code>test_notify.py</code></td><td class="num">31</td><td>Message catalog, buttons, last call, health message, task-token ordering, voice notes</td></tr>
-        <tr><td><code>test_inventory.py</code></td><td class="num">21</td><td>Shelf life, alert scheduling, closing items, overdue rule, buttons, family linking</td></tr>
-        <tr><td><code>test_understand.py</code></td><td class="num">17</td><td>Commands, intent extraction, validation of the model output</td></tr>
+        <tr><td><code>test_notify.py</code></td><td class="num">39</td><td>Message catalog, buttons, last call, health message, review questions, several recipients, voice notes</td></tr>
+        <tr><td><code>test_inventory.py</code></td><td class="num">34</td><td>Shelf life, closing items, review flag, question turns, shared fridge, invitations</td></tr>
+        <tr><td><code>test_understand.py</code></td><td class="num">20</td><td>Commands, intent extraction, validation of the model output</td></tr>
+        <tr><td><code>test_workflow_definition.py</code></td><td class="num">12</td><td>State machine structure, turn and escalation paths, match with the template</td></tr>
         <tr><td><code>test_telegram.py</code></td><td class="num">8</td><td>Bot API requests, errors that never leak the token, voice upload</td></tr>
-        <tr><td><code>test_workflow_definition.py</code></td><td class="num">7</td><td>State machine structure and its match with the template</td></tr>
       </tbody>
     </table>
   </div>
@@ -381,7 +392,9 @@ SECONDS_PER_DAY=20 ASK_TIMEOUT_SECONDS=45 ./scripts/deploy.sh</code></pre>
   <ul>
     <li>Shelf-life values are conservative lower bounds of general USDA and FoodKeeper guidance. The bot is a reminder aid, not food-safety advice.</li>
     <li>Voice messages from the user are not understood yet. The bot says so and asks for text or a photo.</li>
-    <li>One family member per user. Linking a new one replaces the previous one.</li>
+    <li>A person belongs to one fridge at a time. Items they stored in a previous fridge stay there.</li>
+    <li>Questions asked from the review button do not take the question turn, so one can overlap with a scheduled question.</li>
+    <li>Planned next: send a shopping list and have every product stored with a recommended expiry date from a third-party source.</li>
     <li>A change to the webhook method needs a new API Gateway deployment: rename <code>WebhookDeploymentV1</code> in the template.</li>
     <li>Telegram is the prototype channel. WhatsApp and voice input are the natural next steps.</li>
   </ul>

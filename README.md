@@ -1,9 +1,9 @@
 # Tupper Guardian
 
-A Telegram bot that remembers what you put in the fridge and warns you before
-it goes bad. Built for older adults: no app to install, no forms. Send a text
-or a photo, and the bot does the rest. If an expired item goes unattended, a
-family member gets a heads-up.
+A Telegram bot that keeps track of what is in the family fridge and warns
+before food goes bad. Built for older adults: no app to install, no forms.
+Send a text or a photo, and the bot does the rest. A fridge can be shared by
+invitation, so a family manages its contents and expiry dates together.
 
 100% serverless on AWS. No servers, no pipeline: one script deploys everything.
 
@@ -34,23 +34,29 @@ flowchart LR
 3. **Step Functions waits for free.** Each stored item keeps one execution
    paused until the day before it expires, then until it expires. After every
    wait it re-reads DynamoDB, so an item you already ate triggers nothing.
-4. **Human in the loop.** At expiry the bot asks what happened, with three
-   buttons, and the workflow pauses on a task token. A button press releases
-   it. "Sigue ahí" postpones the question a day, twice at most: the third
-   question is a last call without that button, so the bot still learns how
-   the food ended up. Eating something a full day past its deadline is not
-   celebrated as a rescue: the bot acknowledges that throwing food away is
-   hard and explains that this is about health. If nobody answers in time, the item is marked expired
-   and the linked family member is notified; with no family member linked,
-   the bot explains what `/familiar` is for and invites the user to add one.
-5. **Voice.** Confirmations and alerts are also sent as a voice note (Polly).
+4. **Human in the loop.** At expiry the bot asks whoever stored the item what
+   happened, with buttons, and the workflow pauses on a task token. A button
+   press releases it. "Sigue ahí" postpones the question a day, twice at
+   most: the third question is a last call without that button. Eating
+   something a full day past its deadline gets a health message instead of
+   a confirmation.
+5. **One question at a time.** Each person has a single question turn, so
+   items that expire together are asked about one by one instead of in a
+   burst that gets lost in the chat.
+6. **Nothing disappears by silence.** An unanswered item stays in the fridge
+   flagged for review, and the other members of the fridge are told. With
+   nobody else in the fridge, the bot explains what `/familiar` is for. The
+   list shows expired items first and offers to review them one by one.
+7. **Shared fridge.** `/familiar` returns a single-use link. Whoever opens it
+   joins the fridge: same list, and any member can resolve any item.
+8. **Voice.** Confirmations and alerts are also sent as a voice note (Polly).
 
 | You send | The bot does |
 |---|---|
 | "Guardé caldo de pollo en el refri" or a photo | Registers it and schedules the alerts |
-| "Ya me comí el caldo" | Closes it and adds to your rescued count |
-| "¿Qué tengo en el refri?" | Lists what is still active |
-| `/familiar` | Returns a link that registers a family member as caregiver |
+| "Ya me comí el caldo" / "Ya tiré el caldo" | Removes it from the fridge |
+| "¿Qué tengo en el refri?" or `/refri` | Lists what is in the fridge, expired items first |
+| `/familiar` | Returns a single-use link to share the fridge with a relative |
 
 The full architecture guide, with diagrams of the item lifecycle and the
 human-in-the-loop flow, is in [`docs/architecture.html`](docs/architecture.html).
@@ -105,10 +111,15 @@ After deploying in demo mode (a "day" lasts 20 seconds):
 2. At expiry it asks what happened. Tap **Sigue ahí** twice: each time it asks
    again a "day" later.
 3. The third question is the last call, with only **Ya me lo comí** and
-   **Ya lo tiré**. Answer it, or wait 45 seconds to see the item marked as
-   expired and the invitation to link a family member.
-4. Send `/familiar`, open the link from a second Telegram account, and repeat
-   step 3 without answering: the family member gets the heads-up.
+   **Ya lo tiré**. Answer it, or wait 45 seconds: the item stays in the fridge
+   flagged for review, and the bot invites you to share the fridge.
+4. Store three items in a row and let them expire: the questions arrive one
+   at a time, each saying how many more are waiting.
+5. Send `/refri`, tap **Revisar vencidos** and answer the flagged items one by
+   one.
+6. Send `/familiar`, open the link from a second Telegram account, and send
+   `/refri` from it: both accounts see the same fridge. Let a question go
+   unanswered: the second account gets the heads-up and can resolve it.
 
 ## Troubleshooting
 
@@ -148,5 +159,11 @@ After deploying in demo mode (a "day" lasts 20 seconds):
 - Shelf-life values are conservative lower bounds of general USDA / FoodKeeper
   guidance. They are a reminder aid, not food-safety advice.
 - The webhook is protected by an unguessable path segment and rate limiting.
+- A person belongs to one fridge at a time.
 - Telegram is the prototype channel. WhatsApp and voice-message input are the
   natural next steps.
+
+## Roadmap
+
+- **Shopping list import (must-have).** Send the shopping list and have every
+  product stored with an expiry date recommended by a third-party source.

@@ -1,5 +1,5 @@
 {
-  "Comment": "Tupper Guardian: one execution per Telegram update. A stored tupper keeps its execution alive through the waits and the human-in-the-loop question.",
+  "Comment": "Tupper Guardian: one execution per Telegram update. A stored item keeps its execution alive through the waits, its question turn and the human-in-the-loop question.",
   "QueryLanguage": "JSONata",
   "StartAt": "Route",
   "States": {
@@ -17,7 +17,6 @@
       ],
       "Default": "Done"
     },
-
     "Understand": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -34,7 +33,9 @@
       },
       "Retry": [
         {
-          "ErrorEquals": ["States.TaskFailed"],
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
           "IntervalSeconds": 2,
           "MaxAttempts": 2,
           "BackoffRate": 2
@@ -42,7 +43,9 @@
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "Assign": {
             "chat": "{% $states.input.message.chat.id %}"
           },
@@ -51,19 +54,32 @@
       ],
       "Next": "ByIntent"
     },
-
     "ByIntent": {
       "Type": "Choice",
       "Choices": [
-        { "Condition": "{% $ctx.intent = 'store' %}", "Next": "Store" },
-        { "Condition": "{% $ctx.intent = 'consumed' %}", "Next": "Consume" },
-        { "Condition": "{% $ctx.intent = 'list' %}", "Next": "List" },
-        { "Condition": "{% $ctx.intent = 'invite' %}", "Next": "Invite" },
-        { "Condition": "{% $ctx.intent = 'link' %}", "Next": "Link" }
+        {
+          "Condition": "{% $ctx.intent = 'store' %}",
+          "Next": "Store"
+        },
+        {
+          "Condition": "{% $ctx.intent = 'consumed' or $ctx.intent = 'discarded' %}",
+          "Next": "Consume"
+        },
+        {
+          "Condition": "{% $ctx.intent = 'list' %}",
+          "Next": "List"
+        },
+        {
+          "Condition": "{% $ctx.intent = 'invite' %}",
+          "Next": "Invite"
+        },
+        {
+          "Condition": "{% $ctx.intent = 'link' %}",
+          "Next": "Link"
+        }
       ],
       "Default": "PlainReply"
     },
-
     "Store": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -83,7 +99,11 @@
       },
       "Retry": [
         {
-          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.SdkClientException"],
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.SdkClientException"
+          ],
           "IntervalSeconds": 1,
           "MaxAttempts": 2,
           "BackoffRate": 2
@@ -91,7 +111,6 @@
       ],
       "Next": "ConfirmStored"
     },
-
     "ConfirmStored": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -105,29 +124,33 @@
       },
       "Next": "HasReminder"
     },
-
     "HasReminder": {
       "Type": "Choice",
       "Choices": [
-        { "Condition": "{% $t.remind_at != '' %}", "Next": "WaitForReminder" }
+        {
+          "Condition": "{% $t.remind_at != '' %}",
+          "Next": "WaitForReminder"
+        }
       ],
       "Default": "WaitForExpiry"
     },
-
     "WaitForReminder": {
       "Type": "Wait",
       "Timestamp": "{% $t.remind_at %}",
       "Next": "CheckBeforeReminder"
     },
-
     "CheckBeforeReminder": {
       "Type": "Task",
       "Resource": "arn:aws:states:::dynamodb:getItem",
       "Arguments": {
         "TableName": "${TuppersTableName}",
         "Key": {
-          "chat_id": { "S": "{% $t.chat_key %}" },
-          "item_id": { "S": "{% $t.item_id %}" }
+          "chat_id": {
+            "S": "{% $t.fridge_key %}"
+          },
+          "item_id": {
+            "S": "{% $t.item_id %}"
+          }
         },
         "ConsistentRead": true
       },
@@ -136,15 +159,16 @@
       },
       "Next": "StillActiveForReminder"
     },
-
     "StillActiveForReminder": {
       "Type": "Choice",
       "Choices": [
-        { "Condition": "{% $status = 'ACTIVE' %}", "Next": "SendReminder" }
+        {
+          "Condition": "{% $status = 'ACTIVE' %}",
+          "Next": "SendReminder"
+        }
       ],
       "Default": "Done"
     },
-
     "SendReminder": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -158,21 +182,23 @@
       },
       "Next": "WaitForExpiry"
     },
-
     "WaitForExpiry": {
       "Type": "Wait",
       "Timestamp": "{% $t.expires_at %}",
       "Next": "CheckBeforeAsk"
     },
-
     "CheckBeforeAsk": {
       "Type": "Task",
       "Resource": "arn:aws:states:::dynamodb:getItem",
       "Arguments": {
         "TableName": "${TuppersTableName}",
         "Key": {
-          "chat_id": { "S": "{% $t.chat_key %}" },
-          "item_id": { "S": "{% $t.item_id %}" }
+          "chat_id": {
+            "S": "{% $t.fridge_key %}"
+          },
+          "item_id": {
+            "S": "{% $t.item_id %}"
+          }
         },
         "ConsistentRead": true
       },
@@ -181,17 +207,82 @@
       },
       "Next": "StillActiveForAsk"
     },
-
     "StillActiveForAsk": {
       "Type": "Choice",
       "Choices": [
-        { "Condition": "{% $status = 'ACTIVE' %}", "Next": "AskWhatHappened" }
+        {
+          "Condition": "{% $status = 'ACTIVE' %}",
+          "Next": "ClaimTurn"
+        }
       ],
       "Default": "Done"
     },
-
+    "ClaimTurn": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${InventoryFunctionArn}",
+        "Payload": {
+          "action": "claim",
+          "chat_id": "{% $chat %}",
+          "item_id": "{% $t.item_id %}",
+          "fridge_key": "{% $t.fridge_key %}"
+        }
+      },
+      "Comment": "One question is open per person. The turn is a conditional write on the asker's profile.",
+      "Assign": {
+        "turn": "{% $states.result.Payload %}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "HasTurn"
+    },
+    "HasTurn": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $turn.granted %}",
+          "Next": "AskWhatHappened"
+        }
+      ],
+      "Default": "WaitTurn"
+    },
+    "WaitTurn": {
+      "Comment": "Another question is open for this person. Pauses until that one is answered (task token) or the poll interval passes, then tries again.",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Arguments": {
+        "FunctionName": "${InventoryFunctionArn}",
+        "Payload": {
+          "action": "wait_turn",
+          "item_id": "{% $t.item_id %}",
+          "fridge_key": "{% $t.fridge_key %}",
+          "task_token": "{% $states.context.Task.Token %}"
+        }
+      },
+      "TimeoutSeconds": "{% $t.turn_poll_seconds %}",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Next": "CheckBeforeAsk"
+        }
+      ],
+      "Next": "CheckBeforeAsk"
+    },
     "AskWhatHappened": {
-      "Comment": "Human in the loop: sends the question with buttons and pauses until a button press releases the task token, or the timeout escalates.",
+      "Comment": "Human in the loop: sends the question with buttons and pauses until a button press releases the task token. A timeout, or any failure, leaves the item flagged for review and frees the turn.",
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
       "Arguments": {
@@ -199,7 +290,7 @@
         "Payload": {
           "chat_id": "{% $chat %}",
           "kind": "ask",
-          "data": "{% $merge([$t, {'last_chance': $asks >= 2}]) %}",
+          "data": "{% $merge([$t, {'last_chance': $asks >= 2, 'waiting': $turn.waiting}]) %}",
           "task_token": "{% $states.context.Task.Token %}"
         }
       },
@@ -209,87 +300,160 @@
         "asks": "{% $asks + 1 %}"
       },
       "Catch": [
-        { "ErrorEquals": ["States.Timeout"], "Next": "Expire" }
+        {
+          "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Next": "Escalate"
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "Escalate"
+        }
       ],
       "Next": "AfterAnswer"
     },
-
     "AfterAnswer": {
       "Type": "Choice",
       "Choices": [
-        { "Condition": "{% $answer = 'snooze' and $asks < 3 %}", "Next": "WaitSnooze" },
-        { "Condition": "{% $answer = 'snooze' %}", "Next": "Expire" }
+        {
+          "Condition": "{% $answer = 'snooze' and $asks < 3 %}",
+          "Next": "WaitSnooze"
+        },
+        {
+          "Condition": "{% $answer = 'snooze' %}",
+          "Next": "Escalate"
+        }
       ],
       "Default": "Done"
     },
-
     "WaitSnooze": {
       "Type": "Wait",
       "Seconds": "{% $t.snooze_seconds %}",
       "Next": "CheckBeforeAsk"
     },
-
-    "Expire": {
+    "Escalate": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Arguments": {
         "FunctionName": "${InventoryFunctionArn}",
         "Payload": {
-          "action": "expire",
+          "action": "escalate",
           "chat_id": "{% $chat %}",
-          "item_id": "{% $t.item_id %}"
+          "item_id": "{% $t.item_id %}",
+          "fridge_key": "{% $t.fridge_key %}"
         }
       },
+      "Comment": "Nothing disappears by silence: the item stays in the fridge flagged for review.",
       "Assign": {
         "e": "{% $states.result.Payload %}"
       },
-      "Next": "WasExpired"
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "WasEscalated"
     },
-
-    "WasExpired": {
+    "WasEscalated": {
       "Type": "Choice",
       "Choices": [
-        { "Condition": "{% $e.expired %}", "Next": "NotifyExpired" }
+        {
+          "Condition": "{% $e.escalated %}",
+          "Next": "NotifyUnanswered"
+        }
       ],
-      "Default": "Done"
+      "Default": "HasWaiting"
     },
-
-    "NotifyExpired": {
+    "NotifyUnanswered": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Arguments": {
         "FunctionName": "${NotifyFunctionArn}",
         "Payload": {
           "chat_id": "{% $chat %}",
-          "kind": "expired",
+          "kind": "unanswered",
           "data": "{% $e %}"
         }
       },
-      "Next": "HasCaregiver"
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "HasOthers"
+        }
+      ],
+      "Next": "HasOthers"
     },
-
-    "HasCaregiver": {
+    "HasOthers": {
       "Type": "Choice",
       "Choices": [
-        { "Condition": "{% $e.caregiver_chat_id != '' %}", "Next": "NotifyCaregiver" }
+        {
+          "Condition": "{% $count($e.others) > 0 %}",
+          "Next": "NotifyOthers"
+        }
       ],
-      "Default": "Done"
+      "Default": "HasWaiting"
     },
-
-    "NotifyCaregiver": {
+    "NotifyOthers": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Arguments": {
         "FunctionName": "${NotifyFunctionArn}",
         "Payload": {
-          "chat_id": "{% $e.caregiver_chat_id %}",
+          "chat_ids": "{% $e.others %}",
           "kind": "escalation",
           "data": "{% $e %}"
         }
       },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "HasWaiting"
+        }
+      ],
+      "Next": "HasWaiting"
+    },
+    "HasWaiting": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $e.wake_token != '' %}",
+          "Next": "WakeWaiting"
+        }
+      ],
+      "Default": "Done"
+    },
+    "WakeWaiting": {
+      "Comment": "Wakes the execution that waits for its question turn. A stale token is not an error: that execution also polls.",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:sfn:sendTaskSuccess",
+      "Arguments": {
+        "TaskToken": "{% $e.wake_token %}",
+        "Output": "{}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "Done"
+        }
+      ],
       "Next": "Done"
     },
-
     "Consume": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -298,7 +462,8 @@
         "Payload": {
           "action": "consume",
           "chat_id": "{% $chat %}",
-          "food": "{% $ctx.food %}"
+          "food": "{% $ctx.food %}",
+          "disposal": "{% $ctx.intent %}"
         }
       },
       "Assign": {
@@ -307,7 +472,6 @@
       },
       "Next": "Reply"
     },
-
     "List": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -324,7 +488,6 @@
       },
       "Next": "Reply"
     },
-
     "Invite": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -342,7 +505,6 @@
       },
       "Next": "Reply"
     },
-
     "Link": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -351,7 +513,8 @@
         "Payload": {
           "action": "link",
           "chat_id": "{% $chat %}",
-          "code": "{% $ctx.code %}"
+          "code": "{% $ctx.code %}",
+          "first_name": "{% $ctx.first_name %}"
         }
       },
       "Assign": {
@@ -360,16 +523,19 @@
       },
       "Next": "Reply"
     },
-
     "PlainReply": {
       "Type": "Pass",
       "Assign": {
         "kind": "{% $ctx.intent %}",
-        "r": { "task_token": "", "action": "" }
+        "r": {
+          "task_token": "",
+          "action": "",
+          "wake_token": "",
+          "review_id": ""
+        }
       },
       "Next": "Reply"
     },
-
     "ResolveButton": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -389,7 +555,6 @@
       },
       "Next": "Reply"
     },
-
     "Reply": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -404,15 +569,16 @@
       },
       "Next": "HasToken"
     },
-
     "HasToken": {
       "Type": "Choice",
       "Choices": [
-        { "Condition": "{% $r.task_token != '' %}", "Next": "ReleaseToken" }
+        {
+          "Condition": "{% $r.task_token != '' %}",
+          "Next": "ReleaseToken"
+        }
       ],
-      "Default": "Done"
+      "Default": "HasNext"
     },
-
     "ReleaseToken": {
       "Comment": "Wakes up the execution that is paused in AskWhatHappened. A stale token (already timed out) is not an error.",
       "Type": "Task",
@@ -422,11 +588,61 @@
         "Output": "{% $string({'action': $r.action}) %}"
       },
       "Catch": [
-        { "ErrorEquals": ["States.ALL"], "Next": "Done" }
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "HasNext"
+        }
+      ],
+      "Next": "HasNext"
+    },
+    "HasNext": {
+      "Comment": "After an answer: wake the next question that was waiting its turn, or ask about the next item flagged for review.",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $r.wake_token != '' %}",
+          "Next": "WakeNext"
+        },
+        {
+          "Condition": "{% $r.review_id != '' %}",
+          "Next": "AskReview"
+        }
+      ],
+      "Default": "Done"
+    },
+    "WakeNext": {
+      "Comment": "Wakes the execution that waits for its question turn. A stale token is not an error: that execution also polls.",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:sfn:sendTaskSuccess",
+      "Arguments": {
+        "TaskToken": "{% $r.wake_token %}",
+        "Output": "{}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "Done"
+        }
       ],
       "Next": "Done"
     },
-
+    "AskReview": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${NotifyFunctionArn}",
+        "Payload": {
+          "chat_id": "{% $chat %}",
+          "kind": "ask",
+          "data": "{% $r.review %}"
+        }
+      },
+      "Next": "Done"
+    },
     "NotifyError": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
@@ -439,7 +655,6 @@
       },
       "Next": "Done"
     },
-
     "Done": {
       "Type": "Succeed"
     }

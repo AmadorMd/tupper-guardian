@@ -1,5 +1,8 @@
 """Notify Lambda: every outbound Telegram message.
 
+A notification goes to `chat_id`, or to every chat in `chat_ids` when the
+other members of a shared fridge must hear about an unanswered item.
+
 When the workflow calls it with a task token (the "what happened?" question),
 the token is saved on the tupper item *before* the message goes out, so a
 button press can never arrive ahead of the token it needs to release.
@@ -20,13 +23,13 @@ _dynamodb = None
 _polly = None
 
 
-def _save_token(chat_id, item_id, token):
+def _save_token(fridge_key, item_id, token):
     global _dynamodb
     if _dynamodb is None:
         _dynamodb = boto3.resource("dynamodb")
     try:
         _dynamodb.Table(os.environ["TABLE_NAME"]).update_item(
-            Key={"chat_id": str(chat_id), "item_id": item_id},
+            Key={"chat_id": str(fridge_key), "item_id": item_id},
             UpdateExpression="SET task_token = :token",
             ConditionExpression="attribute_exists(item_id)",
             ExpressionAttributeValues={":token": token},
@@ -63,7 +66,7 @@ def _send_voice(chat_id, speech):
 
 
 def handler(event, _context=None):
-    chat_id = event["chat_id"]
+    recipients = event.get("chat_ids") or [event["chat_id"]]
     data = event.get("data") or {}
 
     if event.get("callback_query_id"):
@@ -75,13 +78,21 @@ def handler(event, _context=None):
     message = messages.build(event["kind"], data)
 
     if event.get("task_token"):
-        _save_token(chat_id, data["item_id"], event["task_token"])
+        _save_token(data["fridge_key"], data["item_id"], event["task_token"])
 
-    payload = {"chat_id": chat_id, "text": message.text}
-    if message.buttons:
-        payload["reply_markup"] = {"inline_keyboard": message.buttons}
-    telegram.call("sendMessage", payload)
-
-    if message.speech and os.environ.get("VOICE_ENABLED", "true").lower() == "true":
-        _send_voice(chat_id, message.speech)
+    speak = message.speech and os.environ.get("VOICE_ENABLED", "true").lower() == "true"
+    for chat_id in recipients:
+        payload = {"chat_id": chat_id, "text": message.text}
+        if message.buttons:
+            payload["reply_markup"] = {"inline_keyboard": message.buttons}
+        try:
+            telegram.call("sendMessage", payload)
+        except telegram.TelegramError:
+            # One member who blocked the bot must not silence the others.
+            if len(recipients) == 1:
+                raise
+            logger.warning("Message to one member failed")
+            continue
+        if speak:
+            _send_voice(chat_id, message.speech)
     return {"ok": True}

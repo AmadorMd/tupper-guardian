@@ -60,7 +60,9 @@ def test_question_state_waits_for_a_human_and_escalates_on_timeout():
     ask = STATES["AskWhatHappened"]
     assert ask["Resource"].endswith(".waitForTaskToken")
     assert "$states.context.Task.Token" in ask["Arguments"]["Payload"]["task_token"]
-    assert ask["Catch"] == [{"ErrorEquals": ["States.Timeout"], "Next": "Expire"}]
+    assert ask["Catch"][0] == {"ErrorEquals": ["States.Timeout"], "Next": "Escalate"}
+    # Any other failure must also release the question turn.
+    assert ask["Catch"][1] == {"ErrorEquals": ["States.ALL"], "Next": "Escalate"}
 
 
 def test_status_is_reread_after_every_wait():
@@ -71,7 +73,47 @@ def test_status_is_reread_after_every_wait():
 
 def test_last_question_is_flagged_so_it_cannot_be_snoozed():
     data = STATES["AskWhatHappened"]["Arguments"]["Payload"]["data"]
-    assert "'last_chance': $asks >= 2" in data
+    assert "'last_chance': $asks >= 2" in data and "'waiting': $turn.waiting" in data
     assert STATES["AfterAnswer"]["Choices"][0]["Condition"] == (
         "{% $answer = 'snooze' and $asks < 3 %}"
     )
+
+
+def test_a_question_is_asked_only_after_taking_the_turn():
+    assert STATES["StillActiveForAsk"]["Choices"][0]["Next"] == "ClaimTurn"
+    assert STATES["ClaimTurn"]["Arguments"]["Payload"]["action"] == "claim"
+    has_turn = STATES["HasTurn"]
+    assert has_turn["Choices"] == [{"Condition": "{% $turn.granted %}", "Next": "AskWhatHappened"}]
+    assert has_turn["Default"] == "WaitTurn"
+
+
+def test_waiting_for_the_turn_is_woken_by_a_token_or_polls_again():
+    wait = STATES["WaitTurn"]
+    assert wait["Resource"].endswith(".waitForTaskToken")
+    assert wait["Arguments"]["Payload"]["action"] == "wait_turn"
+    assert wait["TimeoutSeconds"] == "{% $t.turn_poll_seconds %}"
+    assert wait["Next"] == "CheckBeforeAsk"
+    assert wait["Catch"] == [{"ErrorEquals": ["States.Timeout"], "Next": "CheckBeforeAsk"}]
+
+
+def test_every_answer_path_wakes_the_next_question():
+    assert STATES["HasToken"]["Default"] == "HasNext"
+    assert STATES["ReleaseToken"]["Next"] == "HasNext"
+    assert [choice["Next"] for choice in STATES["HasNext"]["Choices"]] == ["WakeNext", "AskReview"]
+    assert STATES["AskReview"]["Arguments"]["Payload"]["data"] == "{% $r.review %}"
+    for name in ("NotifyUnanswered", "NotifyOthers"):
+        assert STATES[name]["Catch"][0]["ErrorEquals"] == ["States.ALL"], name
+    assert STATES["HasWaiting"]["Choices"][0]["Next"] == "WakeWaiting"
+
+
+def test_unanswered_items_are_escalated_to_every_other_member_not_expired():
+    assert "Expire" not in STATES and "NotifyCaregiver" not in STATES
+    assert STATES["Escalate"]["Arguments"]["Payload"]["action"] == "escalate"
+    assert STATES["NotifyOthers"]["Arguments"]["Payload"]["chat_ids"] == "{% $e.others %}"
+    assert STATES["AfterAnswer"]["Choices"][1]["Next"] == "Escalate"
+
+
+def test_items_are_read_from_the_fridge_partition():
+    for name in ("CheckBeforeReminder", "CheckBeforeAsk"):
+        key = STATES[name]["Arguments"]["Key"]["chat_id"]["S"]
+        assert key == "{% $t.fridge_key %}", name

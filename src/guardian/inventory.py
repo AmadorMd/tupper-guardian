@@ -1,11 +1,19 @@
-"""Inventory Lambda: every read and write of tupper and profile state.
+"""Inventory Lambda: every read and write of fridge state.
 
-DynamoDB is the source of truth. Each tupper is closed with a conditional
-update on `status = ACTIVE`, so a button press, a text message, and the
-workflow timeout can race safely: exactly one of them wins.
+DynamoDB is the source of truth. A fridge is a partition shared by the people
+invited to it; each person's profile points to the fridge they belong to.
+Every item is closed with a conditional update on `status = ACTIVE`, so a
+button press, a text message, and the workflow timeout can race safely:
+exactly one of them wins.
 
-Dispatches on `event["action"]`; every response includes `task_token` and
-`action` so the workflow can treat all replies uniformly.
+Questions are asked one at a time per person. The turn is a slot on that
+person's profile, taken with a conditional write and released when the
+question is answered or times out. It also expires by itself, so a failed
+execution can never block the questions that follow.
+
+Dispatches on `event["action"]`; every response includes `task_token`,
+`action`, `wake_token` and `review_id` so the workflow can treat all replies
+uniformly.
 """
 
 import math
@@ -20,13 +28,17 @@ from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
 
 PROFILE_KEY = "PROFILE"
+FRIDGE_KEY = "FRIDGE"
 INVITE_PARTITION = "INVITE"
 TUPPER_PREFIX = "T#"
 DEFAULT_DAYS = 2
 INVITE_TTL_SECONDS = 7 * 24 * 3600
 MAX_TUPPER_ID_LENGTH = 32
+SLOT_MARGIN_SECONDS = 60
+MAX_TURN_POLL_SECONDS = 900
+MIN_TURN_POLL_SECONDS = 5
 
-BUTTON_ACTIONS = {"e": "eaten", "t": "tossed", "s": "snooze"}
+BUTTON_ACTIONS = {"e": "eaten", "t": "tossed", "s": "snooze", "r": "review"}
 CLOSING_STATUS = {"eaten": "CONSUMED", "tossed": "DISCARDED"}
 
 _resource = None
@@ -82,31 +94,43 @@ def _remember_name(chat_key, first_name):
         )
 
 
-def _bump_rescued(chat_key):
-    response = _tuppers().update_item(
-        Key={"chat_id": chat_key, "item_id": PROFILE_KEY},
-        UpdateExpression="ADD rescued_count :one",
-        ExpressionAttributeValues={":one": 1},
-        ReturnValues="UPDATED_NEW",
-    )
-    return int(response["Attributes"]["rescued_count"])
+def _conditional(update):
+    """Run a conditional write; return its response, or None if the condition failed."""
+    try:
+        return update()
+    except ClientError as error:
+        if error.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            return None
+        raise
 
 
-def _eaten(chat_key, item):
-    """Outcome of eating `item`: a rescue while it is good, a health warning
-    once it is a full day past its deadline."""
-    if _now() >= int(item["expires_epoch"]) + _seconds_per_day():
-        return {"overdue": True}
-    return {"rescued_count": _bump_rescued(chat_key)}
+def _fridge_key(chat_key):
+    """The fridge a person belongs to: the one they joined, or their own."""
+    return _profile(chat_key).get("fridge_id") or chat_key
 
 
-def _active_tuppers(chat_key):
+def _members(fridge_key):
+    record = _tuppers().get_item(Key={"chat_id": fridge_key, "item_id": FRIDGE_KEY}).get("Item")
+    return sorted((record or {}).get("members") or {fridge_key})
+
+
+def _asker(item, fridge_key):
+    """Who gets the questions about an item: whoever stored it."""
+    return item.get("stored_by") or fridge_key
+
+
+def _is_overdue(item):
+    return _now() >= int(item["expires_epoch"]) + _seconds_per_day()
+
+
+def _active_tuppers(fridge_key):
     items, start_key = [], None
     while True:
         query = {
-            "KeyConditionExpression": Key("chat_id").eq(chat_key)
+            "KeyConditionExpression": Key("chat_id").eq(fridge_key)
             & Key("item_id").begins_with(TUPPER_PREFIX),
             "FilterExpression": Attr("status").eq("ACTIVE"),
+            "ConsistentRead": True,
         }
         if start_key:
             query["ExclusiveStartKey"] = start_key
@@ -117,28 +141,72 @@ def _active_tuppers(chat_key):
             return items
 
 
-def _close(chat_key, item_id, new_status):
-    """Move an ACTIVE tupper to `new_status` (or just clear its token when
+def _close(fridge_key, item_id, new_status):
+    """Move an ACTIVE item to `new_status` (or just clear its token when
     `new_status` is None). Returns the previous item, or None if it was not
     ACTIVE anymore."""
-    update = "REMOVE task_token" if new_status is None else "SET #s = :new REMOVE task_token"
+    update = "REMOVE task_token"
     values = {":active": "ACTIVE"}
     if new_status is not None:
+        update = "SET #s = :new REMOVE task_token, turn_token"
         values[":new"] = new_status
-    try:
-        response = _tuppers().update_item(
-            Key={"chat_id": chat_key, "item_id": item_id},
+    response = _conditional(
+        lambda: _tuppers().update_item(
+            Key={"chat_id": fridge_key, "item_id": item_id},
             UpdateExpression=update,
             ConditionExpression="#s = :active",
             ExpressionAttributeNames={"#s": "status"},
             ExpressionAttributeValues=values,
             ReturnValues="ALL_OLD",
         )
-    except ClientError as error:
-        if error.response["Error"]["Code"] == "ConditionalCheckFailedException":
-            return None
-        raise
-    return response.get("Attributes")
+    )
+    return response.get("Attributes") if response else None
+
+
+def _release_turn(asker_key, item_id):
+    _conditional(
+        lambda: _tuppers().update_item(
+            Key={"chat_id": asker_key, "item_id": PROFILE_KEY},
+            UpdateExpression="REMOVE asking, asking_until",
+            ConditionExpression="asking = :item",
+            ExpressionAttributeValues={":item": item_id},
+        )
+    )
+
+
+def _soonest(items):
+    return min(items, key=lambda item: int(item["expires_epoch"])) if items else None
+
+
+def _review_question(fridge_key, pending):
+    """The next flagged item to ask about, shaped like the data of an `ask` message."""
+    item = _soonest(pending)
+    if not item:
+        return {}
+    return {
+        "fridge_key": fridge_key,
+        "item_id": item["item_id"],
+        "tupper_id": item["item_id"][len(TUPPER_PREFIX):],
+        "food": item["food"],
+        "review": True,
+        "waiting": len(pending) - 1,
+    }
+
+
+def _what_follows(fridge_key, answered):
+    """After `answered` leaves its question: free the turn, then name what to
+    ask next. A waiting execution is woken first; with none waiting, the next
+    item flagged for review is offered."""
+    asker = _asker(answered, fridge_key)
+    _release_turn(asker, answered["item_id"])
+    others = [i for i in _active_tuppers(fridge_key) if i["item_id"] != answered["item_id"]]
+    waiting = _soonest(
+        [i for i in others if i.get("turn_token") and _asker(i, fridge_key) == asker]
+    )
+    if waiting:
+        return {"wake_token": waiting["turn_token"]}
+    review = _review_question(fridge_key, [i for i in others if i.get("needs_review")])
+    return {"review_id": review.get("item_id", ""), "review": review}
 
 
 def _pick(food, items):
@@ -166,6 +234,7 @@ def _pick(food, items):
 
 def store(event):
     chat_key = str(event["chat_id"])
+    fridge_key = _fridge_key(chat_key)
     food = event["food"]
     days, default_used = _shelf_days(event.get("category") or "other")
     per_day = _seconds_per_day()
@@ -175,11 +244,13 @@ def store(event):
     item_id = TUPPER_PREFIX + tupper_id
     _tuppers().put_item(
         Item={
-            "chat_id": chat_key,
+            "chat_id": fridge_key,
             "item_id": item_id,
             "food": food,
             "category": event.get("category") or "other",
             "status": "ACTIVE",
+            "stored_by": chat_key,
+            "stored_by_name": event.get("first_name") or "",
             "stored_at": _iso(now),
             "expires_at": _iso(expires),
             "expires_epoch": int(expires),
@@ -187,7 +258,7 @@ def store(event):
     )
     _remember_name(chat_key, event.get("first_name"))
     return {
-        "chat_key": chat_key,
+        "fridge_key": fridge_key,
         "tupper_id": tupper_id,
         "item_id": item_id,
         "food": food,
@@ -198,72 +269,157 @@ def store(event):
         "expires_at": _iso(expires),
         "ask_timeout_seconds": int(os.environ.get("ASK_TIMEOUT_SECONDS", "21600")),
         "snooze_seconds": per_day,
+        "turn_poll_seconds": max(MIN_TURN_POLL_SECONDS, min(per_day // 4, MAX_TURN_POLL_SECONDS)),
     }
 
 
 def consume(event):
-    chat_key = str(event["chat_id"])
-    match = _pick(event.get("food", ""), _active_tuppers(chat_key))
-    previous = _close(chat_key, match["item_id"], "CONSUMED") if match else None
+    """Close the item a free-text message refers to, eaten or thrown away."""
+    fridge_key = _fridge_key(str(event["chat_id"]))
+    tossed = event.get("disposal") == "discarded"
+    match = _pick(event.get("food", ""), _active_tuppers(fridge_key))
+    previous = None
+    if match:
+        previous = _close(fridge_key, match["item_id"], "DISCARDED" if tossed else "CONSUMED")
     if not previous:
         return {"found": False, "food": event.get("food", "")}
-    return {
+    result = {
         "found": True,
         "food": previous["food"],
-        "action": "eaten",
+        "action": "tossed" if tossed else "eaten",
         "task_token": previous.get("task_token", ""),
-        **_eaten(chat_key, previous),
+        **_what_follows(fridge_key, previous),
     }
+    if not tossed and _is_overdue(previous):
+        result["overdue"] = True
+    return result
 
 
 def list_active(event):
     chat_key = str(event["chat_id"])
+    fridge_key = _fridge_key(chat_key)
     per_day = _seconds_per_day()
     now = _now()
-    items = sorted(_active_tuppers(chat_key), key=lambda item: int(item["expires_epoch"]))
+    items = sorted(_active_tuppers(fridge_key), key=lambda item: int(item["expires_epoch"]))
     return {
         "items": [
             {
                 "food": item["food"],
                 "days_left": math.ceil((int(item["expires_epoch"]) - now) / per_day),
+                "needs_review": bool(item.get("needs_review")),
+                "stored_by_name": ""
+                if _asker(item, fridge_key) == chat_key
+                else item.get("stored_by_name") or "",
             }
             for item in items
         ],
-        "rescued_count": int(_profile(chat_key).get("rescued_count", 0)),
+        "review_count": sum(1 for item in items if item.get("needs_review")),
+        "shared": len(_members(fridge_key)) > 1,
     }
 
 
 def resolve(event):
     """Apply a button press. `data` is untrusted: "<code>|<tupper_id>"."""
-    chat_key = str(event["chat_id"])
+    fridge_key = _fridge_key(str(event["chat_id"]))
     code, _, tupper_id = str(event.get("data", "")).partition("|")
     action = BUTTON_ACTIONS.get(code)
     if not action or not tupper_id.isalnum() or len(tupper_id) > MAX_TUPPER_ID_LENGTH:
         return {"action": "already"}
-    previous = _close(chat_key, TUPPER_PREFIX + tupper_id, CLOSING_STATUS.get(action))
+    if action == "review":
+        pending = [i for i in _active_tuppers(fridge_key) if i.get("needs_review")]
+        review = _review_question(fridge_key, pending)
+        return {"action": "review", "review_id": review.get("item_id", ""), "review": review}
+    previous = _close(fridge_key, TUPPER_PREFIX + tupper_id, CLOSING_STATUS.get(action))
     if not previous:
         return {"action": "already"}
     result = {
         "action": action,
         "food": previous["food"],
         "task_token": previous.get("task_token", ""),
+        **_what_follows(fridge_key, previous),
     }
-    if action == "eaten":
-        result.update(_eaten(chat_key, previous))
+    if action == "eaten" and _is_overdue(previous):
+        result["overdue"] = True
     return result
 
 
-def expire(event):
+def claim(event):
+    """Take the asker's question turn for an item. One question is open per
+    person; a turn nobody released expires after the question timeout."""
     chat_key = str(event["chat_id"])
-    previous = _close(chat_key, event["item_id"], "EXPIRED")
-    if not previous:
-        return {"expired": False, "food": "", "caregiver_chat_id": "", "owner_name": ""}
-    profile = _profile(chat_key)
+    fridge_key, item_id = event["fridge_key"], event["item_id"]
+    now = int(_now())
+    timeout = int(os.environ.get("ASK_TIMEOUT_SECONDS", "21600"))
+    granted = _conditional(
+        lambda: _tuppers().update_item(
+            Key={"chat_id": chat_key, "item_id": PROFILE_KEY},
+            UpdateExpression="SET asking = :item, asking_until = :until",
+            ConditionExpression=(
+                "attribute_not_exists(asking) OR asking = :item OR asking_until < :now"
+            ),
+            ExpressionAttributeValues={
+                ":item": item_id,
+                ":until": now + timeout + SLOT_MARGIN_SECONDS,
+                ":now": now,
+            },
+        )
+    )
+    if not granted:
+        return {"granted": False, "waiting": 0}
+    _conditional(
+        lambda: _tuppers().update_item(
+            Key={"chat_id": fridge_key, "item_id": item_id},
+            UpdateExpression="REMOVE turn_token",
+            ConditionExpression="attribute_exists(item_id)",
+        )
+    )
+    due = [
+        item
+        for item in _active_tuppers(fridge_key)
+        if item["item_id"] != item_id
+        and _asker(item, fridge_key) == chat_key
+        and int(item["expires_epoch"]) <= now
+    ]
+    return {"granted": True, "waiting": len(due)}
+
+
+def wait_turn(event):
+    """Remember the token that wakes this item's execution when the turn frees up."""
+    _conditional(
+        lambda: _tuppers().update_item(
+            Key={"chat_id": event["fridge_key"], "item_id": event["item_id"]},
+            UpdateExpression="SET turn_token = :token",
+            ConditionExpression="#s = :active",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={":token": event["task_token"], ":active": "ACTIVE"},
+        )
+    )
+    return {}
+
+
+def escalate(event):
+    """A question went unanswered: keep the item in the fridge, flagged for
+    review, and report who else should hear about it."""
+    chat_key = str(event["chat_id"])
+    fridge_key, item_id = event["fridge_key"], event["item_id"]
+    response = _conditional(
+        lambda: _tuppers().update_item(
+            Key={"chat_id": fridge_key, "item_id": item_id},
+            UpdateExpression="SET needs_review = :yes REMOVE task_token",
+            ConditionExpression="#s = :active",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={":yes": True, ":active": "ACTIVE"},
+            ReturnValues="ALL_OLD",
+        )
+    )
+    previous = response.get("Attributes") if response else None
+    follows = _what_follows(fridge_key, previous or {"item_id": item_id, "stored_by": chat_key})
     return {
-        "expired": True,
-        "food": previous["food"],
-        "caregiver_chat_id": profile.get("caregiver_chat_id", ""),
-        "owner_name": profile.get("first_name", ""),
+        "escalated": bool(previous),
+        "food": previous["food"] if previous else "",
+        "owner_name": _profile(chat_key).get("first_name", ""),
+        "others": [member for member in _members(fridge_key) if member != chat_key],
+        "wake_token": follows.get("wake_token", ""),
     }
 
 
@@ -275,7 +431,8 @@ def invite(event):
         Item={
             "chat_id": INVITE_PARTITION,
             "item_id": code,
-            "owner_chat_id": chat_key,
+            "fridge_id": _fridge_key(chat_key),
+            "inviter_name": event.get("first_name") or "",
             "ttl": int(_now()) + INVITE_TTL_SECONDS,
         }
     )
@@ -283,23 +440,40 @@ def invite(event):
 
 
 def link(event):
-    """Register the caller as caregiver of whoever created the invite code."""
-    caregiver_key = str(event["chat_id"])
+    """Add the caller to the fridge of whoever created the invite code."""
+    chat_key = str(event["chat_id"])
     key = {"chat_id": INVITE_PARTITION, "item_id": str(event.get("code", ""))}
     if not key["item_id"]:
         return {"linked": False}
     invitation = _tuppers().get_item(Key=key).get("Item")
-    expired = not invitation or int(invitation.get("ttl", 0)) < _now()
-    if expired or invitation["owner_chat_id"] == caregiver_key:
+    if not invitation or int(invitation.get("ttl", 0)) < _now():
         return {"linked": False}
-    owner_key = invitation["owner_chat_id"]
+    fridge_key = invitation["fridge_id"]
+    previous_fridge = _fridge_key(chat_key)
+    if previous_fridge == fridge_key:
+        return {"linked": False}
+    # The code is single use: only the caller that deletes it gets in.
+    if not _conditional(
+        lambda: _tuppers().delete_item(Key=key, ConditionExpression="attribute_exists(item_id)")
+    ):
+        return {"linked": False}
     _tuppers().update_item(
-        Key={"chat_id": owner_key, "item_id": PROFILE_KEY},
-        UpdateExpression="SET caregiver_chat_id = :caregiver",
-        ExpressionAttributeValues={":caregiver": caregiver_key},
+        Key={"chat_id": previous_fridge, "item_id": FRIDGE_KEY},
+        UpdateExpression="DELETE members :member",
+        ExpressionAttributeValues={":member": {chat_key}},
     )
-    _tuppers().delete_item(Key=key)
-    return {"linked": True, "owner_name": _profile(owner_key).get("first_name", "")}
+    _tuppers().update_item(
+        Key={"chat_id": fridge_key, "item_id": FRIDGE_KEY},
+        UpdateExpression="ADD members :members",
+        ExpressionAttributeValues={":members": {fridge_key, chat_key}},
+    )
+    _tuppers().update_item(
+        Key={"chat_id": chat_key, "item_id": PROFILE_KEY},
+        UpdateExpression="SET fridge_id = :fridge",
+        ExpressionAttributeValues={":fridge": fridge_key},
+    )
+    _remember_name(chat_key, event.get("first_name"))
+    return {"linked": True, "owner_name": invitation.get("inviter_name", "")}
 
 
 _ACTIONS = {
@@ -307,7 +481,9 @@ _ACTIONS = {
     "consume": consume,
     "list": list_active,
     "resolve": resolve,
-    "expire": expire,
+    "claim": claim,
+    "wait_turn": wait_turn,
+    "escalate": escalate,
     "invite": invite,
     "link": link,
 }
@@ -315,6 +491,6 @@ _ACTIONS = {
 
 def handler(event, _context=None):
     result = _ACTIONS[event["action"]](event)
-    result.setdefault("task_token", "")
-    result.setdefault("action", "")
+    for key in ("task_token", "action", "wake_token", "review_id"):
+        result.setdefault(key, "")
     return result

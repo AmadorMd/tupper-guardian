@@ -2,7 +2,13 @@ import pytest
 
 from guardian import messages, notify, telegram
 
-TUPPER = {"item_id": "T#abc123", "tupper_id": "abc123", "food": "caldo", "days": 3}
+TUPPER = {
+    "fridge_key": "111",
+    "item_id": "T#abc123",
+    "tupper_id": "abc123",
+    "food": "caldo",
+    "days": 3,
+}
 
 
 @pytest.fixture
@@ -52,12 +58,96 @@ def test_last_chance_ask_drops_the_snooze_button(sent):
     assert "Último aviso" in payload["text"] and "caldo" in payload["text"]
 
 
-def test_expired_invites_to_add_a_family_member_only_when_none_is_linked():
-    alone = messages.build("expired", {"food": "caldo", "caregiver_chat_id": ""}).text
-    linked = messages.build("expired", {"food": "caldo", "caregiver_chat_id": "222"}).text
+def test_unanswered_item_stays_and_invites_family_only_when_the_fridge_is_not_shared():
+    alone = messages.build("unanswered", {"food": "caldo", "others": []}).text
+    shared = messages.build("unanswered", {"food": "caldo", "others": ["222"]}).text
 
-    assert "/familiar" in alone and "le aviso" in alone
-    assert "/familiar" not in linked and "vencido" in linked
+    assert "lo dejé en el refri" in alone and "/refri" in alone
+    assert "/familiar" in alone and "compartirle el refri" in alone
+    assert "/familiar" not in shared and "lo dejé en el refri" in shared
+
+
+def test_question_asked_by_a_relative_reaches_the_token_of_the_shared_fridge(sent, tables):
+    tables.put_item(Item={"chat_id": "111", "item_id": "T#abc123", "status": "ACTIVE"})
+
+    notify.handler({"chat_id": 222, "kind": "ask", "data": TUPPER, "task_token": "TOKEN"})
+
+    assert tables.get_item(Key={"chat_id": "111", "item_id": "T#abc123"})["Item"][
+        "task_token"
+    ] == "TOKEN"
+    assert sent[0][1]["chat_id"] == 222
+
+
+def test_one_notification_can_reach_several_members(sent):
+    notify.handler(
+        {"chat_ids": ["222", "333"], "kind": "escalation",
+         "data": {"food": "caldo", "owner_name": "Lupita"}}
+    )
+
+    assert [payload["chat_id"] for _, payload in sent] == ["222", "333"]
+    assert all("Lupita tiene caldo vencido" in payload["text"] for _, payload in sent)
+
+
+def test_question_says_how_many_more_are_waiting():
+    one = messages.build("ask", {**TUPPER, "waiting": 1})
+    three = messages.build("ask", {**TUPPER, "waiting": 3})
+
+    assert "1 alimento más por revisar" in one.text
+    assert "3 alimentos más por revisar" in three.text and "uno por uno" in three.text
+    assert "por revisar" not in messages.build("ask", TUPPER).text
+    assert "por revisar" not in three.speech
+
+
+def test_review_question_is_neutral_about_the_owner_and_cannot_be_snoozed():
+    message = messages.build("ask", {**TUPPER, "review": True, "waiting": 0})
+
+    assert "«caldo»" in message.text and "Tu caldo" not in message.text
+    assert [row[0]["callback_data"] for row in message.buttons] == ["e|abc123", "t|abc123"]
+    assert message.speech is None
+
+
+def test_list_groups_by_urgency_and_offers_to_review_expired_items():
+    message = messages.build(
+        "list",
+        {
+            "items": [
+                {"food": "pollo", "days_left": -1, "needs_review": True, "stored_by_name": ""},
+                {"food": "salsa", "days_left": 1, "needs_review": False, "stored_by_name": "Ana"},
+                {"food": "queso", "days_left": 9, "needs_review": False, "stored_by_name": ""},
+            ],
+            "review_count": 1,
+        },
+    )
+    lines = message.text.splitlines()
+
+    assert lines.index("⚠️ Vencidos, por revisar:") < lines.index("• pollo: ya venció")
+    assert lines.index("⏰ Vencen pronto:") < lines.index("• salsa: vence en 1 día (lo guardó Ana)")
+    assert lines.index("✅ En buen estado:") < lines.index("• queso: vence en 9 días")
+    assert message.buttons == [[{"text": "🔎 Revisar vencidos (1)", "callback_data": "r|0"}]]
+
+
+def test_no_message_talks_about_rescued_containers():
+    samples = [
+        ("list", {"items": [], "review_count": 0}),
+        ("resolved", {"action": "eaten", "food": "caldo"}),
+        ("consumed", {"found": True, "food": "caldo", "action": "eaten"}),
+        ("help", {}),
+    ]
+
+    for kind, data in samples:
+        text = messages.build(kind, data).text
+        assert "rescatad" not in text and "tuppers registrados" not in text
+
+
+def test_review_button_reply_depends_on_whether_anything_is_pending():
+    assert "uno por uno" in messages.build("resolved", {"action": "review", "review_id": "T#1"}).text
+    assert "No hay" in messages.build("resolved", {"action": "review", "review_id": ""}).text
+
+
+def test_thrown_away_by_text_is_confirmed_without_a_health_warning():
+    text = messages.build("consumed", {"found": True, "food": "caldo", "action": "tossed"}).text
+
+    assert text == "Entendido, quité caldo del refri."
 
 
 @pytest.mark.parametrize(
@@ -81,10 +171,10 @@ def test_overdue_health_message_is_also_spoken_without_the_emoji():
     assert "salud" in message.speech
 
 
-def test_eating_on_time_is_still_celebrated():
-    assert "1 tupper rescatado" in messages.build(
-        "resolved", {"action": "eaten", "food": "caldo", "rescued_count": 1}
-    ).text
+def test_eating_on_time_is_confirmed():
+    text = messages.build("resolved", {"action": "eaten", "food": "caldo"}).text
+
+    assert text == "¡Buen provecho! Quité caldo del refri."
 
 
 def test_ask_for_a_deleted_tupper_does_not_create_a_phantom_item(sent, tables):
@@ -99,14 +189,14 @@ def test_button_press_is_acknowledged_before_the_reply(sent):
         {
             "chat_id": 111,
             "kind": "resolved",
-            "data": {"action": "eaten", "rescued_count": 2},
+            "data": {"action": "eaten", "food": "caldo"},
             "callback_query_id": "cb-1",
         }
     )
 
     assert sent[0] == ("answerCallbackQuery", {"callback_query_id": "cb-1"})
     assert sent[1][0] == "sendMessage"
-    assert "2 tuppers rescatados" in sent[1][1]["text"]
+    assert "Quité caldo del refri" in sent[1][1]["text"]
 
 
 def test_empty_callback_id_is_not_acknowledged(sent):
@@ -143,9 +233,9 @@ def test_voice_note_follows_the_text_when_enabled(sent, monkeypatch):
     [
         ("stored", {"food": "guacamole", "days": 1, "default_used": True}, "1 día"),
         ("stored", {"food": "x", "days": 2, "default_used": True}, "tiempo corto por seguridad"),
-        ("consumed", {"found": True, "food": "caldo", "rescued_count": 1}, "1 tupper rescatado"),
+        ("consumed", {"found": True, "food": "caldo"}, "Quité caldo del refri"),
         ("consumed", {"found": False}, "No encontré"),
-        ("list", {"items": [], "rescued_count": 0}, "No tienes tuppers"),
+        ("list", {"items": []}, "El refri está vacío"),
         ("list", {"items": [{"food": "caldo", "days_left": 0}]}, "caldo: ya venció"),
         ("list", {"items": [{"food": "caldo", "days_left": 2}]}, "caldo: vence en 2 días"),
         ("invite", {"code": "XYZ"}, "https://t.me/guardian_test_bot?start=care_XYZ"),
@@ -153,9 +243,9 @@ def test_voice_note_follows_the_text_when_enabled(sent, monkeypatch):
         ("link", {"linked": False}, "ya no es válido"),
         ("resolved", {"action": "already"}, "ya estaba resuelto"),
         ("resolved", {"action": "snooze"}, "mañana"),
-        ("expired", {"food": "caldo"}, "vencido"),
+        ("unanswered", {"food": "caldo"}, "vencido"),
         ("escalation", {"food": "caldo", "owner_name": "Lupita"}, "Lupita tiene caldo vencido"),
-        ("escalation", {"food": "caldo", "owner_name": ""}, "Tu familiar tiene caldo"),
+        ("escalation", {"food": "caldo", "owner_name": ""}, "Alguien de tu familia tiene caldo"),
         ("voice_unsupported", {}, "texto y fotos"),
         ("something_new", {}, "No te entendí"),
     ],

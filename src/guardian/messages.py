@@ -12,13 +12,22 @@ BUTTON_EATEN = "e"
 BUTTON_TOSSED = "t"
 BUTTON_SNOOZE = "s"
 
+BUTTON_REVIEW = "r"
+
 HELP_TEXT = (
-    "Soy el Guardián de Tuppers. 🧊\n\n"
+    "Soy el Guardián de Tuppers. 🧊 Llevo la cuenta de lo que hay en el refri de tu "
+    "familia y te aviso antes de que algo se eche a perder.\n\n"
     "• Cuéntame qué guardaste: «Guardé caldo de pollo en el refri».\n"
-    "• O mándame una foto del tupper.\n"
-    "• Cuando te lo acabes: «Ya me comí el caldo».\n"
-    "• Para ver tu lista: «¿Qué tengo en el refri?».\n"
-    "• Para que un familiar reciba avisos: /familiar"
+    "• O mándame una foto del alimento.\n"
+    "• Cuando se acabe: «Ya me comí el caldo» o «Ya tiré el caldo».\n"
+    "• Para ver qué hay en el refri: /refri\n"
+    "• Para compartir el refri con tu familia: /familiar"
+)
+
+FAMILY_INVITATION = (
+    "💡 ¿Quieres que alguien de tu familia te eche una mano? Escribe /familiar y te doy "
+    "un enlace para compartirle el refri. Así podrá ver qué hay y ayudarte a revisar lo "
+    "que vence."
 )
 
 
@@ -31,10 +40,6 @@ class Message:
 
 def _days(count):
     return "1 día" if count == 1 else f"{count} días"
-
-
-def _rescued(count):
-    return "1 tupper rescatado" if count == 1 else f"{count} tuppers rescatados"
 
 
 def _ate_overdue(data):
@@ -68,102 +73,137 @@ def _reminder(data):
     return Message(f"⏰ {sentence}", speech=sentence)
 
 
+def _waiting(count):
+    if not count:
+        return ""
+    more = "1 alimento más" if count == 1 else f"{count} alimentos más"
+    return f"\n\nTienes {more} por revisar. Te pregunto uno por uno."
+
+
 def _ask(data):
     tupper_id = data["tupper_id"]
     tossed = {"callback_data": f"{BUTTON_TOSSED}|{tupper_id}"}
     eaten = {"callback_data": f"{BUTTON_EATEN}|{tupper_id}"}
+    final_buttons = [
+        [{"text": "🤢 Ya me lo comí", **eaten}],
+        [{"text": "🗑️ Ya lo tiré", **tossed}],
+    ]
+    more = _waiting(data.get("waiting", 0))
+    if data.get("review"):
+        # Asked from the list, maybe by a relative: neutral about whose food it is.
+        sentence = (
+            f"«{data['food']}» ya pasó su fecha límite y nadie me dijo qué pasó. "
+            "¿Qué pasó con este alimento?"
+        )
+        return Message(f"🔎 {sentence}{more}", buttons=final_buttons)
     if data.get("last_chance"):
         # Final question: no snooze, so the user tells us how the food ended up.
         sentence = f"Último aviso: tu {data['food']} ya pasó su fecha límite. ¿Qué pasó con él?"
-        buttons = [
-            [{"text": "🤢 Ya me lo comí", **eaten}],
-            [{"text": "🗑️ Ya lo tiré", **tossed}],
-        ]
-    else:
-        sentence = f"Tu {data['food']} ya llegó a su fecha límite. ¿Qué pasó con él?"
-        buttons = [
-            [{"text": "😋 Ya me lo comí", **eaten}],
-            [{"text": "🗑️ Lo tiré", **tossed}],
-            [{"text": "🧊 Sigue ahí", "callback_data": f"{BUTTON_SNOOZE}|{tupper_id}"}],
-        ]
-    return Message(f"⚠️ {sentence}", buttons=buttons, speech=sentence)
+        return Message(f"⚠️ {sentence}{more}", buttons=final_buttons, speech=sentence)
+    sentence = f"Tu {data['food']} ya llegó a su fecha límite. ¿Qué pasó con él?"
+    buttons = [
+        [{"text": "😋 Ya me lo comí", **eaten}],
+        [{"text": "🗑️ Lo tiré", **tossed}],
+        [{"text": "🧊 Sigue ahí", "callback_data": f"{BUTTON_SNOOZE}|{tupper_id}"}],
+    ]
+    return Message(f"⚠️ {sentence}{more}", buttons=buttons, speech=sentence)
+
+
+def _removed(data, eaten):
+    if eaten and data.get("overdue"):
+        return _ate_overdue(data)
+    opening = "¡Buen provecho! Quité" if eaten else "Entendido, quité"
+    return Message(f"{opening} {data.get('food') or 'ese alimento'} del refri.")
 
 
 def _resolved(data):
     action = data.get("action")
-    if action == "eaten" and data.get("overdue"):
-        return _ate_overdue(data)
-    if action == "eaten":
-        return Message(f"¡Muy bien! Llevas {_rescued(data.get('rescued_count', 0))}. 🎉")
-    if action == "tossed":
-        return Message("Entendido, lo quité de tu lista.")
+    if action in ("eaten", "tossed"):
+        return _removed(data, eaten=action == "eaten")
     if action == "snooze":
         return Message(
             "De acuerdo, te vuelvo a preguntar mañana. Si huele o se ve raro, mejor tíralo."
         )
-    return Message("Ese tupper ya estaba resuelto.")
+    if action == "review":
+        if data.get("review_id"):
+            return Message("Vamos uno por uno. 👇")
+        return Message("No hay alimentos vencidos por revisar. ✅")
+    return Message("Ese alimento ya estaba resuelto.")
 
 
 def _consumed(data):
-    if data.get("found") and data.get("overdue"):
-        return _ate_overdue(data)
     if data.get("found"):
-        return Message(
-            f"¡Buen provecho! Quité {data['food']} de tu lista. "
-            f"Llevas {_rescued(data.get('rescued_count', 0))}."
-        )
-    return Message("No encontré ese alimento en tu lista. Escribe «qué tengo» para verla.")
+        return _removed(data, eaten=data.get("action") != "tossed")
+    return Message("No encontré ese alimento en el refri. Escribe /refri para ver qué hay.")
+
+
+def _list_line(item):
+    left = item["days_left"]
+    when = "ya venció" if left <= 0 else f"vence en {_days(left)}"
+    who = f" (lo guardó {item['stored_by_name']})" if item.get("stored_by_name") else ""
+    return f"• {item['food']}: {when}{who}"
 
 
 def _list(data):
     items = data.get("items") or []
     if not items:
-        text = "No tienes tuppers registrados."
-    else:
-        lines = ["🧊 En tu refri:"]
-        for item in items:
-            left = item["days_left"]
-            when = "ya venció" if left <= 0 else f"vence en {_days(left)}"
-            lines.append(f"• {item['food']}: {when}")
-        text = "\n".join(lines)
-    rescued = data.get("rescued_count", 0)
-    if rescued:
-        text += f"\n\nLlevas {_rescued(rescued)}."
-    return Message(text)
+        return Message("El refri está vacío. Cuéntame qué guardaste o mándame una foto.")
+    groups = [
+        ("⚠️ Vencidos, por revisar:", [i for i in items if i["days_left"] <= 0]),
+        ("⏰ Vencen pronto:", [i for i in items if i["days_left"] == 1]),
+        ("✅ En buen estado:", [i for i in items if i["days_left"] > 1]),
+    ]
+    lines = ["🧊 En el refri:"]
+    for title, group in groups:
+        if group:
+            lines += ["", title, *map(_list_line, group)]
+    pending = data.get("review_count", 0)
+    buttons = None
+    if pending:
+        label = f"🔎 Revisar vencidos ({pending})"
+        buttons = [[{"text": label, "callback_data": f"{BUTTON_REVIEW}|0"}]]
+    return Message("\n".join(lines), buttons=buttons)
 
 
 def _invite(data):
     username = os.environ.get("BOT_USERNAME", "")
     link = f"https://t.me/{username}?start=care_{data['code']}"
     return Message(
-        "Comparte este enlace con tu familiar. Cuando lo abra, le avisaré si dejas "
-        f"un alimento vencido sin atender:\n{link}"
+        "Comparte este enlace con alguien de tu familia. Quien lo abra podrá ver qué hay "
+        "en el refri, anotar alimentos y marcar lo que ya se comió o se tiró. Además, si "
+        "un alimento vence y no me contestas, le aviso para que te ayude a revisarlo.\n"
+        f"{link}\n\n"
+        "El enlace sirve una sola vez. Pide otro con /familiar para cada persona."
     )
 
 
 def _link(data):
     if data.get("linked"):
-        name = data.get("owner_name") or "tu familiar"
-        return Message(f"Listo. Te avisaré si {name} deja un alimento vencido sin atender.")
-    return Message("Ese enlace ya no es válido. Pide uno nuevo con /familiar.")
-
-
-def _expired(data):
-    text = f"Marqué tu {data['food']} como vencido. Si sigue en el refri, mejor tíralo."
-    if not data.get("caregiver_chat_id"):
-        text += (
-            "\n\n💡 ¿Quieres que alguien de tu familia te eche una mano? Escribe /familiar "
-            "y te doy un enlace para compartirle. Así, cuando un alimento se te pase de "
-            "fecha y no me contestes, le aviso para que esté al pendiente de ti."
+        name = data.get("owner_name") or "tu familia"
+        return Message(
+            f"Listo, ya compartes el refri de {name}. Escribe /refri para ver qué hay. "
+            "Te avisaré cuando un alimento venza y nadie lo haya atendido."
         )
+    return Message(
+        "Ese enlace ya no es válido, o ya estás en ese refri. Pide uno nuevo con /familiar."
+    )
+
+
+def _unanswered(data):
+    text = (
+        f"No supe qué pasó con tu {data['food']}, así que lo dejé en el refri marcado "
+        "como vencido. Cuando puedas, escribe /refri para revisarlo."
+    )
+    if not data.get("others"):
+        text += f"\n\n{FAMILY_INVITATION}"
     return Message(text)
 
 
 def _escalation(data):
-    name = data.get("owner_name") or "Tu familiar"
+    name = data.get("owner_name") or "Alguien de tu familia"
     return Message(
-        f"👋 {name} tiene {data['food']} vencido en el refri y no lo ha atendido. "
-        "Quizá convenga llamarle."
+        f"👋 {name} tiene {data['food']} vencido en el refri y no ha respondido. "
+        "Escribe /refri para revisarlo, o pregúntale si lo sigue teniendo."
     )
 
 
@@ -176,7 +216,7 @@ _BUILDERS = {
     "list": _list,
     "invite": _invite,
     "link": _link,
-    "expired": _expired,
+    "unanswered": _unanswered,
     "escalation": _escalation,
     "help": lambda data: Message(HELP_TEXT),
     "unknown": lambda data: Message("No te entendí bien. 🤔\n\n" + HELP_TEXT),

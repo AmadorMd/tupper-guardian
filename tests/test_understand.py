@@ -107,6 +107,8 @@ def test_photo_is_downloaded_and_sent_as_an_image(bedrock, monkeypatch):
         ("/start", {"intent": "help", "code": ""}),
         ("/ayuda", {"intent": "help", "code": ""}),
         ("/familiar", {"intent": "invite", "code": ""}),
+        ("/familia", {"intent": "invite", "code": ""}),
+        ("/refri", {"intent": "list", "code": ""}),
         ("/familiar@guardian_test_bot", {"intent": "invite", "code": ""}),
         ("/start care_AbC-123_x", {"intent": "link", "code": "AbC-123_x"}),
     ],
@@ -135,3 +137,12 @@ def test_missing_sender_name_defaults_to_empty(bedrock):
 
     assert result["first_name"] == ""
     assert result["chat_id"] == 5
+
+
+def test_throwing_food_away_is_its_own_intent(bedrock):
+    bedrock({"intent": "discarded", "food": "caldo", "category": "cooked_soup_stew"})
+
+    result = understand.handler(message(text="Ya tiré el caldo"))
+
+    assert result["intent"] == "discarded" and result["food"] == "caldo"
+    assert "discarded: the user says they threw a food away" in understand.SYSTEM_PROMPT
