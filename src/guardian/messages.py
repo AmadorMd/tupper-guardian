@@ -38,13 +38,17 @@ def _rescued(count):
 
 
 def _ate_overdue(data):
-    """Health first: no celebration for eating food that is past its deadline."""
+    """Health first: no celebration for eating food that is past its deadline.
+    Spoken as well, because this is the message that matters most."""
+    advice = (
+        "Sé que cuesta tirar comida: a muchos nos enseñaron a no desperdiciar nada. "
+        f"Pero tu {data['food']} ya había pasado su fecha, y comerlo así puede hacerte "
+        "daño aunque se vea y huela bien, o aunque le quites la parte fea. Tirarlo a "
+        "tiempo no es desperdicio: es cuidar tu salud. Si llegas a sentirte mal, "
+        "avísale a alguien de confianza o a tu médico."
+    )
     return Message(
-        f"Gracias por decírmelo. 💛 Sé que cuesta tirar comida: a muchos nos enseñaron "
-        f"a no desperdiciar nada. Pero tu {data['food']} ya había pasado su fecha, y "
-        "comerlo así puede hacerte daño aunque se vea y huela bien, o aunque le quites "
-        "la parte fea. Tirarlo a tiempo no es desperdicio: es cuidar tu salud. "
-        "Si llegas a sentirte mal, avísale a alguien de confianza o a tu médico."
+        f"Gracias por decírmelo. 💛 {advice}", speech=f"Gracias por decírmelo. {advice}"
     )
 
 

@@ -74,6 +74,13 @@ def test_eating_overdue_food_gets_a_health_message_instead_of_a_celebration(kind
     assert "rescatado" not in text and "🎉" not in text and "Buen provecho" not in text
 
 
+def test_overdue_health_message_is_also_spoken_without_the_emoji():
+    message = messages.build("resolved", {"action": "eaten", "food": "caldo", "overdue": True})
+
+    assert message.speech == message.text.replace(" 💛", "")
+    assert "salud" in message.speech
+
+
 def test_eating_on_time_is_still_celebrated():
     assert "1 tupper rescatado" in messages.build(
         "resolved", {"action": "eaten", "food": "caldo", "rescued_count": 1}
