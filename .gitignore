@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.webhook-secret
+.packaged.yaml
+*.pyc
