@@ -199,7 +199,7 @@
         "Payload": {
           "chat_id": "{% $chat %}",
           "kind": "ask",
-          "data": "{% $t %}",
+          "data": "{% $merge([$t, {'last_chance': $asks >= 2}]) %}",
           "task_token": "{% $states.context.Task.Token %}"
         }
       },

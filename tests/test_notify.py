@@ -42,6 +42,24 @@ def test_ask_saves_the_token_before_sending_the_buttons(sent, tables, monkeypatc
     assert [row[0]["callback_data"] for row in buttons] == ["e|abc123", "t|abc123", "s|abc123"]
 
 
+def test_last_chance_ask_drops_the_snooze_button(sent):
+    notify.handler({"chat_id": 111, "kind": "ask", "data": {**TUPPER, "last_chance": True}})
+
+    payload = sent[0][1]
+    buttons = payload["reply_markup"]["inline_keyboard"]
+    assert [row[0]["callback_data"] for row in buttons] == ["e|abc123", "t|abc123"]
+    assert [row[0]["text"] for row in buttons] == ["🤢 Ya me lo comí", "🗑️ Ya lo tiré"]
+    assert "Último aviso" in payload["text"] and "caldo" in payload["text"]
+
+
+def test_expired_invites_to_add_a_family_member_only_when_none_is_linked():
+    alone = messages.build("expired", {"food": "caldo", "caregiver_chat_id": ""}).text
+    linked = messages.build("expired", {"food": "caldo", "caregiver_chat_id": "222"}).text
+
+    assert "/familiar" in alone and "le aviso" in alone
+    assert "/familiar" not in linked and "vencido" in linked
+
+
 def test_ask_for_a_deleted_tupper_does_not_create_a_phantom_item(sent, tables):
     notify.handler({"chat_id": 111, "kind": "ask", "data": TUPPER, "task_token": "TOKEN"})
 

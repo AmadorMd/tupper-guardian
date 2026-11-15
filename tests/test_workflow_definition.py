@@ -67,3 +67,11 @@ def test_status_is_reread_after_every_wait():
     for wait in (name for name, state in STATES.items() if state["Type"] == "Wait"):
         check = STATES[STATES[wait]["Next"]]
         assert check["Resource"] == "arn:aws:states:::dynamodb:getItem", wait
+
+
+def test_last_question_is_flagged_so_it_cannot_be_snoozed():
+    data = STATES["AskWhatHappened"]["Arguments"]["Payload"]["data"]
+    assert "'last_chance': $asks >= 2" in data
+    assert STATES["AfterAnswer"]["Choices"][0]["Condition"] == (
+        "{% $answer = 'snooze' and $asks < 3 %}"
+    )

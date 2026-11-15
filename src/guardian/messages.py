@@ -54,13 +54,23 @@ def _reminder(data):
 
 
 def _ask(data):
-    sentence = f"Tu {data['food']} ya llegó a su fecha límite. ¿Qué pasó con él?"
     tupper_id = data["tupper_id"]
-    buttons = [
-        [{"text": "😋 Ya me lo comí", "callback_data": f"{BUTTON_EATEN}|{tupper_id}"}],
-        [{"text": "🗑️ Lo tiré", "callback_data": f"{BUTTON_TOSSED}|{tupper_id}"}],
-        [{"text": "🧊 Sigue ahí", "callback_data": f"{BUTTON_SNOOZE}|{tupper_id}"}],
-    ]
+    tossed = {"callback_data": f"{BUTTON_TOSSED}|{tupper_id}"}
+    eaten = {"callback_data": f"{BUTTON_EATEN}|{tupper_id}"}
+    if data.get("last_chance"):
+        # Final question: no snooze, so the user tells us how the food ended up.
+        sentence = f"Último aviso: tu {data['food']} ya pasó su fecha límite. ¿Qué pasó con él?"
+        buttons = [
+            [{"text": "🤢 Ya me lo comí", **eaten}],
+            [{"text": "🗑️ Ya lo tiré", **tossed}],
+        ]
+    else:
+        sentence = f"Tu {data['food']} ya llegó a su fecha límite. ¿Qué pasó con él?"
+        buttons = [
+            [{"text": "😋 Ya me lo comí", **eaten}],
+            [{"text": "🗑️ Lo tiré", **tossed}],
+            [{"text": "🧊 Sigue ahí", "callback_data": f"{BUTTON_SNOOZE}|{tupper_id}"}],
+        ]
     return Message(f"⚠️ {sentence}", buttons=buttons, speech=sentence)
 
 
@@ -120,7 +130,14 @@ def _link(data):
 
 
 def _expired(data):
-    return Message(f"Marqué tu {data['food']} como vencido. Si sigue en el refri, mejor tíralo.")
+    text = f"Marqué tu {data['food']} como vencido. Si sigue en el refri, mejor tíralo."
+    if not data.get("caregiver_chat_id"):
+        text += (
+            "\n\n💡 ¿Quieres que alguien de tu familia te eche una mano? Escribe /familiar "
+            "y te doy un enlace para compartirle. Así, cuando un alimento se te pase de "
+            "fecha y no me contestes, le aviso para que esté al pendiente de ti."
+        )
+    return Message(text)
 
 
 def _escalation(data):
