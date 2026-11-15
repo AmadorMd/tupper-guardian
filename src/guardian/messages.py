@@ -37,6 +37,17 @@ def _rescued(count):
     return "1 tupper rescatado" if count == 1 else f"{count} tuppers rescatados"
 
 
+def _ate_overdue(data):
+    """Health first: no celebration for eating food that is past its deadline."""
+    return Message(
+        f"Gracias por decírmelo. 💛 Sé que cuesta tirar comida: a muchos nos enseñaron "
+        f"a no desperdiciar nada. Pero tu {data['food']} ya había pasado su fecha, y "
+        "comerlo así puede hacerte daño aunque se vea y huela bien, o aunque le quites "
+        "la parte fea. Tirarlo a tiempo no es desperdicio: es cuidar tu salud. "
+        "Si llegas a sentirte mal, avísale a alguien de confianza o a tu médico."
+    )
+
+
 def _stored(data):
     food, days = data["food"], data["days"]
     text = f"✅ Anotado: {food}. Dura aproximadamente {_days(days)} en el refri. Yo te aviso."
@@ -76,6 +87,8 @@ def _ask(data):
 
 def _resolved(data):
     action = data.get("action")
+    if action == "eaten" and data.get("overdue"):
+        return _ate_overdue(data)
     if action == "eaten":
         return Message(f"¡Muy bien! Llevas {_rescued(data.get('rescued_count', 0))}. 🎉")
     if action == "tossed":
@@ -88,6 +101,8 @@ def _resolved(data):
 
 
 def _consumed(data):
+    if data.get("found") and data.get("overdue"):
+        return _ate_overdue(data)
     if data.get("found"):
         return Message(
             f"¡Buen provecho! Quité {data['food']} de tu lista. "

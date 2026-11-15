@@ -60,6 +60,26 @@ def test_expired_invites_to_add_a_family_member_only_when_none_is_linked():
     assert "/familiar" not in linked and "vencido" in linked
 
 
+@pytest.mark.parametrize(
+    ("kind", "data"),
+    [
+        ("resolved", {"action": "eaten", "food": "caldo", "overdue": True}),
+        ("consumed", {"found": True, "food": "caldo", "overdue": True}),
+    ],
+)
+def test_eating_overdue_food_gets_a_health_message_instead_of_a_celebration(kind, data):
+    text = messages.build(kind, data).text
+
+    assert "caldo" in text and "salud" in text and "cuesta tirar comida" in text
+    assert "rescatado" not in text and "🎉" not in text and "Buen provecho" not in text
+
+
+def test_eating_on_time_is_still_celebrated():
+    assert "1 tupper rescatado" in messages.build(
+        "resolved", {"action": "eaten", "food": "caldo", "rescued_count": 1}
+    ).text
+
+
 def test_ask_for_a_deleted_tupper_does_not_create_a_phantom_item(sent, tables):
     notify.handler({"chat_id": 111, "kind": "ask", "data": TUPPER, "task_token": "TOKEN"})
 

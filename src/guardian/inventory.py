@@ -92,6 +92,14 @@ def _bump_rescued(chat_key):
     return int(response["Attributes"]["rescued_count"])
 
 
+def _eaten(chat_key, item):
+    """Outcome of eating `item`: a rescue while it is good, a health warning
+    once it is a full day past its deadline."""
+    if _now() >= int(item["expires_epoch"]) + _seconds_per_day():
+        return {"overdue": True}
+    return {"rescued_count": _bump_rescued(chat_key)}
+
+
 def _active_tuppers(chat_key):
     items, start_key = [], None
     while True:
@@ -204,7 +212,7 @@ def consume(event):
         "food": previous["food"],
         "action": "eaten",
         "task_token": previous.get("task_token", ""),
-        "rescued_count": _bump_rescued(chat_key),
+        **_eaten(chat_key, previous),
     }
 
 
@@ -241,7 +249,7 @@ def resolve(event):
         "task_token": previous.get("task_token", ""),
     }
     if action == "eaten":
-        result["rescued_count"] = _bump_rescued(chat_key)
+        result.update(_eaten(chat_key, previous))
     return result
 
 

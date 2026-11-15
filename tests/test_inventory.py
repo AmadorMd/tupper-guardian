@@ -129,6 +129,31 @@ def test_resolve_eaten_closes_the_tupper_and_returns_its_token(tables):
     assert stored_item(tables, result)["status"] == "CONSUMED"
 
 
+def test_eating_right_at_the_deadline_still_counts_as_rescued(tables, monkeypatch):
+    result = store()  # 3 days
+    monkeypatch.setattr(inventory, "_now", lambda: NOW + 4 * DAY - 1)
+
+    resolved = call("resolve", data=f"e|{result['tupper_id']}")
+
+    assert resolved["rescued_count"] == 1
+    assert "overdue" not in resolved
+
+
+def test_eating_a_day_past_the_deadline_is_overdue_and_not_a_rescue(tables, monkeypatch):
+    by_button, by_text = store(), store(food="arroz rojo")
+    monkeypatch.setattr(inventory, "_now", lambda: NOW + 4 * DAY)
+
+    resolved = call("resolve", data=f"e|{by_button['tupper_id']}")
+    consumed = call("consume", food="arroz")
+
+    assert resolved["action"] == "eaten" and resolved["overdue"] is True
+    assert consumed["found"] is True and consumed["overdue"] is True
+    assert "rescued_count" not in resolved and "rescued_count" not in consumed
+    assert stored_item(tables, by_button)["status"] == "CONSUMED"
+    assert stored_item(tables, by_text)["status"] == "CONSUMED"
+    assert call("list")["rescued_count"] == 0
+
+
 def test_resolve_tossed_does_not_count_as_rescued(tables):
     result = store()
 

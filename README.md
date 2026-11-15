@@ -38,7 +38,9 @@ flowchart LR
    buttons, and the workflow pauses on a task token. A button press releases
    it. "Sigue ahí" postpones the question a day, twice at most: the third
    question is a last call without that button, so the bot still learns how
-   the food ended up. If nobody answers in time, the item is marked expired
+   the food ended up. Eating something a full day past its deadline is not
+   celebrated as a rescue: the bot acknowledges that throwing food away is
+   hard and explains that this is about health. If nobody answers in time, the item is marked expired
    and the linked family member is notified; with no family member linked,
    the bot explains what `/familiar` is for and invites the user to add one.
 5. **Voice.** Confirmations and alerts are also sent as a voice note (Polly).
