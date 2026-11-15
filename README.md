@@ -75,9 +75,51 @@ To remove everything: `aws cloudformation delete-stack --stack-name tupper-guard
 ## Tests
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install boto3 pytest "moto[dynamodb]"
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest
 ```
+
+The suite needs no AWS account or network: DynamoDB and SSM are mocked with
+moto, and Bedrock, Polly and Telegram are replaced by fakes.
+
+| File | What it pins |
+|---|---|
+| `tests/test_inventory.py` | Shelf life, alert scheduling, closing items, buttons, caregiver linking |
+| `tests/test_understand.py` | Intent extraction and validation of the model output |
+| `tests/test_notify.py` | Message catalog, buttons, task-token ordering, voice notes |
+| `tests/test_telegram.py` | Bot API requests, errors that never leak the token, voice upload |
+| `tests/test_workflow_definition.py` | State machine structure and its match with the template |
+
+## Try it
+
+After deploying in demo mode (a "day" lasts 20 seconds):
+
+1. Send `Guardé caldo de pollo en el refri`. The bot confirms with text and a
+   voice note. About 40 seconds later it reminds you that it expires tomorrow.
+2. At expiry it asks what happened. Tap **Sigue ahí** twice: each time it asks
+   again a "day" later.
+3. The third question is the last call, with only **Ya me lo comí** and
+   **Ya lo tiré**. Answer it, or wait 45 seconds to see the item marked as
+   expired and the invitation to link a family member.
+4. Send `/familiar`, open the link from a second Telegram account, and repeat
+   step 3 without answering: the family member gets the heads-up.
+
+## Troubleshooting
+
+- **`AccessDenied` with "explicit deny in a service control policy"**: the
+  account only allows some regions. Export the allowed one in the same shell
+  that runs the scripts, for example
+  `export AWS_REGION=us-east-2 AWS_DEFAULT_REGION=us-east-2`. Without it,
+  `deploy.sh` uses the AWS CLI default region, then `us-east-1`.
+- **`CERTIFICATE_VERIFY_FAILED` in `telegram_admin.py`**: the python.org
+  build of Python for macOS ships without root certificates. Run
+  `export SSL_CERT_FILE=/etc/ssl/cert.pem` in that shell, or run
+  `Install Certificates.command` from the Python folder in Applications.
+- **"Bedrock model ... is not usable"**: list the inference profiles of the
+  region and rerun with `MODEL_ID=<id>`. The model must accept images.
+- **The bot does not answer**: `python3 scripts/telegram_admin.py info` shows
+  the webhook status and Telegram's last delivery error. Then check the
+  latest executions of the state machine in the Step Functions console.
 
 ## Layout
 
@@ -88,7 +130,12 @@ python3 -m venv .venv && .venv/bin/pip install boto3 pytest "moto[dynamodb]"
 | `src/guardian/understand.py` | Text or photo to intent, via Bedrock |
 | `src/guardian/inventory.py` | All DynamoDB state changes |
 | `src/guardian/notify.py` | Telegram messages, buttons, voice notes |
+| `src/guardian/messages.py` | Every user-facing message (Spanish) |
+| `src/guardian/telegram.py` | Minimal Bot API client (standard library) |
 | `src/guardian/shelf_life.json` | Shelf-life data and the closed category list |
+| `scripts/` | Deploy, token storage, seeding, webhook administration |
+| `tests/` | Unit tests (see above) |
+| `odd/tasks/tupper-guardian.md` | Specs, task status and decision log |
 
 ## Notes and limits
 
