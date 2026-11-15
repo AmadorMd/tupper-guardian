@@ -1,0 +1,278 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Tupper Guardian - a Telegram bot that tracks fridge leftovers and reminds you
+  before they expire. API Gateway starts a Step Functions workflow directly;
+  three small Lambda functions cover what has no native integration.
+
+Parameters:
+  WebhookSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    MaxLength: 64
+    AllowedPattern: "[A-Za-z0-9_-]+"
+    Description: Unguessable path segment of the webhook URL. Only Telegram knows it.
+  BotTokenParam:
+    Type: String
+    Default: /tupper-guardian/bot-token
+    AllowedPattern: "/[A-Za-z0-9_./-]+"
+    Description: Name of the SSM SecureString parameter that holds the bot token.
+  BotUsername:
+    Type: String
+    Description: Telegram bot username without the @, used to build invite links.
+  ModelId:
+    Type: String
+    Default: us.amazon.nova-lite-v1:0
+    Description: Bedrock model or inference profile ID. Must accept image input.
+  SecondsPerDay:
+    Type: Number
+    Default: 86400
+    MinValue: 5
+    Description: Length of a "day". 86400 in real use; a small value speeds up demos.
+  AskTimeoutSeconds:
+    Type: Number
+    Default: 21600
+    MinValue: 10
+    Description: How long to wait for a button press before alerting the caregiver.
+  VoiceEnabled:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Architectures: [arm64]
+    MemorySize: 256
+    Timeout: 15
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref TuppersTable
+        SHELF_TABLE_NAME: !Ref ShelfLifeTable
+        BOT_TOKEN_PARAM: !Ref BotTokenParam
+        BOT_USERNAME: !Ref BotUsername
+        SECONDS_PER_DAY: !Ref SecondsPerDay
+        ASK_TIMEOUT_SECONDS: !Ref AskTimeoutSeconds
+
+Resources:
+  # ---------------------------------------------------------------- Data
+  TuppersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: chat_id, AttributeType: S }
+        - { AttributeName: item_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: chat_id, KeyType: HASH }
+        - { AttributeName: item_id, KeyType: RANGE }
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  ShelfLifeTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: category, AttributeType: S }
+      KeySchema:
+        - { AttributeName: category, KeyType: HASH }
+
+  # ----------------------------------------------------------- Functions
+  UnderstandFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: guardian.understand.handler
+      Timeout: 30
+      Environment:
+        Variables:
+          MODEL_ID: !Ref ModelId
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource:
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/*
+                - !Sub arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${BotTokenParam}
+
+  InventoryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: guardian.inventory.handler
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+              Resource: !GetAtt TuppersTable.Arn
+            - Effect: Allow
+              Action: dynamodb:GetItem
+              Resource: !GetAtt ShelfLifeTable.Arn
+
+  NotifyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: guardian.notify.handler
+      Timeout: 25
+      Environment:
+        Variables:
+          VOICE_ENABLED: !Ref VoiceEnabled
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt TuppersTable.Arn
+            - Effect: Allow
+              Action: polly:SynthesizeSpeech
+              Resource: "*"
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${BotTokenParam}
+
+  # ------------------------------------------------------------ Workflow
+  GuardianStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Type: STANDARD
+      DefinitionUri: statemachine/guardian.asl.json
+      DefinitionSubstitutions:
+        UnderstandFunctionArn: !GetAtt UnderstandFunction.Arn
+        InventoryFunctionArn: !GetAtt InventoryFunction.Arn
+        NotifyFunctionArn: !GetAtt NotifyFunction.Arn
+        TuppersTableName: !Ref TuppersTable
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource:
+                - !GetAtt UnderstandFunction.Arn
+                - !GetAtt InventoryFunction.Arn
+                - !GetAtt NotifyFunction.Arn
+            - Effect: Allow
+              Action: dynamodb:GetItem
+              Resource: !GetAtt TuppersTable.Arn
+            # Task tokens are opaque and bound to one execution, and scoping
+            # this to the state machine ARN would be a circular reference.
+            - Effect: Allow
+              Action: states:SendTaskSuccess
+              Resource: "*"
+
+  # ------------------------------------------------------------- Webhook
+  # Telegram -> API Gateway -> StartExecution, with no Lambda in between.
+  # The execution is named after Telegram's update_id, so a redelivered
+  # update cannot start a second execution.
+  WebhookApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub ${AWS::StackName}-webhook
+      EndpointConfiguration:
+        Types: [REGIONAL]
+
+  WebhookResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref WebhookApi
+      ParentId: !GetAtt WebhookApi.RootResourceId
+      PathPart: webhook
+
+  WebhookSecretResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref WebhookApi
+      ParentId: !Ref WebhookResource
+      PathPart: !Ref WebhookSecret
+
+  WebhookMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref WebhookApi
+      ResourceId: !Ref WebhookSecretResource
+      HttpMethod: POST
+      # Telegram cannot sign requests; the secret path segment is the control.
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:states:action/StartExecution
+        Credentials: !GetAtt WebhookRole.Arn
+        PassthroughBehavior: NEVER
+        RequestTemplates:
+          application/json: !Sub |
+            #set($body = $util.escapeJavaScript($input.json('$')).replaceAll("\\'", "'"))
+            {
+              "stateMachineArn": "${GuardianStateMachine}",
+              "name": "tg-$input.path('$.update_id')",
+              "input": "$body"
+            }
+        IntegrationResponses:
+          # Always answer 200, including for a duplicate execution name:
+          # any other status makes Telegram redeliver the update.
+          - StatusCode: "200"
+            ResponseTemplates:
+              application/json: '{"ok": true}'
+      MethodResponses:
+        - StatusCode: "200"
+
+  # Changing WebhookMethod requires a new deployment: rename this logical ID
+  # (for example WebhookDeploymentV2) so CloudFormation creates one.
+  WebhookDeploymentV1:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: WebhookMethod
+    Properties:
+      RestApiId: !Ref WebhookApi
+
+  WebhookStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref WebhookApi
+      DeploymentId: !Ref WebhookDeploymentV1
+      StageName: prod
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingRateLimit: 10
+          ThrottlingBurstLimit: 20
+
+  WebhookRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StartGuardianExecution
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: states:StartExecution
+                Resource: !Ref GuardianStateMachine
+
+Outputs:
+  WebhookBaseUrl:
+    Description: Webhook URL without the secret path segment.
+    Value: !Sub https://${WebhookApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${WebhookStage}/webhook
+  StateMachineArn:
+    Value: !Ref GuardianStateMachine
+  TuppersTableName:
+    Value: !Ref TuppersTable
+  ShelfLifeTableName:
+    Value: !Ref ShelfLifeTable

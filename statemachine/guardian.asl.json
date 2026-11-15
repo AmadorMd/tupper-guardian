@@ -1,0 +1,447 @@
+{
+  "Comment": "Tupper Guardian: one execution per Telegram update. A stored tupper keeps its execution alive through the waits and the human-in-the-loop question.",
+  "QueryLanguage": "JSONata",
+  "StartAt": "Route",
+  "States": {
+    "Route": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $exists($states.input.callback_query) %}",
+          "Next": "ResolveButton"
+        },
+        {
+          "Condition": "{% $exists($states.input.message) %}",
+          "Next": "Understand"
+        }
+      ],
+      "Default": "Done"
+    },
+
+    "Understand": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${UnderstandFunctionArn}",
+        "Payload": {
+          "message": "{% $states.input.message %}"
+        }
+      },
+      "Assign": {
+        "ctx": "{% $states.result.Payload %}",
+        "chat": "{% $states.result.Payload.chat_id %}",
+        "cb": ""
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Assign": {
+            "chat": "{% $states.input.message.chat.id %}"
+          },
+          "Next": "NotifyError"
+        }
+      ],
+      "Next": "ByIntent"
+    },
+
+    "ByIntent": {
+      "Type": "Choice",
+      "Choices": [
+        { "Condition": "{% $ctx.intent = 'store' %}", "Next": "Store" },
+        { "Condition": "{% $ctx.intent = 'consumed' %}", "Next": "Consume" },
+        { "Condition": "{% $ctx.intent = 'list' %}", "Next": "List" },
+        { "Condition": "{% $ctx.intent = 'invite' %}", "Next": "Invite" },
+        { "Condition": "{% $ctx.intent = 'link' %}", "Next": "Link" }
+      ],
+      "Default": "PlainReply"
+    },
+
+    "Store": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${InventoryFunctionArn}",
+        "Payload": {
+          "action": "store",
+          "chat_id": "{% $chat %}",
+          "first_name": "{% $ctx.first_name %}",
+          "food": "{% $ctx.food %}",
+          "category": "{% $ctx.category %}"
+        }
+      },
+      "Assign": {
+        "t": "{% $states.result.Payload %}",
+        "asks": 0
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "ConfirmStored"
+    },
+
+    "ConfirmStored": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${NotifyFunctionArn}",
+        "Payload": {
+          "chat_id": "{% $chat %}",
+          "kind": "stored",
+          "data": "{% $t %}"
+        }
+      },
+      "Next": "HasReminder"
+    },
+
+    "HasReminder": {
+      "Type": "Choice",
+      "Choices": [
+        { "Condition": "{% $t.remind_at != '' %}", "Next": "WaitForReminder" }
+      ],
+      "Default": "WaitForExpiry"
+    },
+
+    "WaitForReminder": {
+      "Type": "Wait",
+      "Timestamp": "{% $t.remind_at %}",
+      "Next": "CheckBeforeReminder"
+    },
+
+    "CheckBeforeReminder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:getItem",
+      "Arguments": {
+        "TableName": "${TuppersTableName}",
+        "Key": {
+          "chat_id": { "S": "{% $t.chat_key %}" },
+          "item_id": { "S": "{% $t.item_id %}" }
+        },
+        "ConsistentRead": true
+      },
+      "Assign": {
+        "status": "{% $exists($states.result.Item.status.S) ? $states.result.Item.status.S : 'GONE' %}"
+      },
+      "Next": "StillActiveForReminder"
+    },
+
+    "StillActiveForReminder": {
+      "Type": "Choice",
+      "Choices": [
+        { "Condition": "{% $status = 'ACTIVE' %}", "Next": "SendReminder" }
+      ],
+      "Default": "Done"
+    },
+
+    "SendReminder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${NotifyFunctionArn}",
+        "Payload": {
+          "chat_id": "{% $chat %}",
+          "kind": "reminder",
+          "data": "{% $t %}"
+        }
+      },
+      "Next": "WaitForExpiry"
+    },
+
+    "WaitForExpiry": {
+      "Type": "Wait",
+      "Timestamp": "{% $t.expires_at %}",
+      "Next": "CheckBeforeAsk"
+    },
+
+    "CheckBeforeAsk": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:getItem",
+      "Arguments": {
+        "TableName": "${TuppersTableName}",
+        "Key": {
+          "chat_id": { "S": "{% $t.chat_key %}" },
+          "item_id": { "S": "{% $t.item_id %}" }
+        },
+        "ConsistentRead": true
+      },
+      "Assign": {
+        "status": "{% $exists($states.result.Item.status.S) ? $states.result.Item.status.S : 'GONE' %}"
+      },
+      "Next": "StillActiveForAsk"
+    },
+
+    "StillActiveForAsk": {
+      "Type": "Choice",
+      "Choices": [
+        { "Condition": "{% $status = 'ACTIVE' %}", "Next": "AskWhatHappened" }
+      ],
+      "Default": "Done"
+    },
+
+    "AskWhatHappened": {
+      "Comment": "Human in the loop: sends the question with buttons and pauses until a button press releases the task token, or the timeout escalates.",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Arguments": {
+        "FunctionName": "${NotifyFunctionArn}",
+        "Payload": {
+          "chat_id": "{% $chat %}",
+          "kind": "ask",
+          "data": "{% $t %}",
+          "task_token": "{% $states.context.Task.Token %}"
+        }
+      },
+      "TimeoutSeconds": "{% $t.ask_timeout_seconds %}",
+      "Assign": {
+        "answer": "{% $states.result.action %}",
+        "asks": "{% $asks + 1 %}"
+      },
+      "Catch": [
+        { "ErrorEquals": ["States.Timeout"], "Next": "Expire" }
+      ],
+      "Next": "AfterAnswer"
+    },
+
+    "AfterAnswer": {
+      "Type": "Choice",
+      "Choices": [
+        { "Condition": "{% $answer = 'snooze' and $asks < 3 %}", "Next": "WaitSnooze" },
+        { "Condition": "{% $answer = 'snooze' %}", "Next": "Expire" }
+      ],
+      "Default": "Done"
+    },
+
+    "WaitSnooze": {
+      "Type": "Wait",
+      "Seconds": "{% $t.snooze_seconds %}",
+      "Next": "CheckBeforeAsk"
+    },
+
+    "Expire": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${InventoryFunctionArn}",
+        "Payload": {
+          "action": "expire",
+          "chat_id": "{% $chat %}",
+          "item_id": "{% $t.item_id %}"
+        }
+      },
+      "Assign": {
+        "e": "{% $states.result.Payload %}"
+      },
+      "Next": "WasExpired"
+    },
+
+    "WasExpired": {
+      "Type": "Choice",
+      "Choices": [
+        { "Condition": "{% $e.expired %}", "Next": "NotifyExpired" }
+      ],
+      "Default": "Done"
+    },
+
+    "NotifyExpired": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${NotifyFunctionArn}",
+        "Payload": {
+          "chat_id": "{% $chat %}",
+          "kind": "expired",
+          "data": "{% $e %}"
+        }
+      },
+      "Next": "HasCaregiver"
+    },
+
+    "HasCaregiver": {
+      "Type": "Choice",
+      "Choices": [
+        { "Condition": "{% $e.caregiver_chat_id != '' %}", "Next": "NotifyCaregiver" }
+      ],
+      "Default": "Done"
+    },
+
+    "NotifyCaregiver": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${NotifyFunctionArn}",
+        "Payload": {
+          "chat_id": "{% $e.caregiver_chat_id %}",
+          "kind": "escalation",
+          "data": "{% $e %}"
+        }
+      },
+      "Next": "Done"
+    },
+
+    "Consume": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${InventoryFunctionArn}",
+        "Payload": {
+          "action": "consume",
+          "chat_id": "{% $chat %}",
+          "food": "{% $ctx.food %}"
+        }
+      },
+      "Assign": {
+        "kind": "consumed",
+        "r": "{% $states.result.Payload %}"
+      },
+      "Next": "Reply"
+    },
+
+    "List": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${InventoryFunctionArn}",
+        "Payload": {
+          "action": "list",
+          "chat_id": "{% $chat %}"
+        }
+      },
+      "Assign": {
+        "kind": "list",
+        "r": "{% $states.result.Payload %}"
+      },
+      "Next": "Reply"
+    },
+
+    "Invite": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${InventoryFunctionArn}",
+        "Payload": {
+          "action": "invite",
+          "chat_id": "{% $chat %}",
+          "first_name": "{% $ctx.first_name %}"
+        }
+      },
+      "Assign": {
+        "kind": "invite",
+        "r": "{% $states.result.Payload %}"
+      },
+      "Next": "Reply"
+    },
+
+    "Link": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${InventoryFunctionArn}",
+        "Payload": {
+          "action": "link",
+          "chat_id": "{% $chat %}",
+          "code": "{% $ctx.code %}"
+        }
+      },
+      "Assign": {
+        "kind": "link",
+        "r": "{% $states.result.Payload %}"
+      },
+      "Next": "Reply"
+    },
+
+    "PlainReply": {
+      "Type": "Pass",
+      "Assign": {
+        "kind": "{% $ctx.intent %}",
+        "r": { "task_token": "", "action": "" }
+      },
+      "Next": "Reply"
+    },
+
+    "ResolveButton": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${InventoryFunctionArn}",
+        "Payload": {
+          "action": "resolve",
+          "chat_id": "{% $states.input.callback_query.from.id %}",
+          "data": "{% $states.input.callback_query.data %}"
+        }
+      },
+      "Assign": {
+        "kind": "resolved",
+        "r": "{% $states.result.Payload %}",
+        "chat": "{% $states.input.callback_query.from.id %}",
+        "cb": "{% $states.input.callback_query.id %}"
+      },
+      "Next": "Reply"
+    },
+
+    "Reply": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${NotifyFunctionArn}",
+        "Payload": {
+          "chat_id": "{% $chat %}",
+          "kind": "{% $kind %}",
+          "data": "{% $r %}",
+          "callback_query_id": "{% $cb %}"
+        }
+      },
+      "Next": "HasToken"
+    },
+
+    "HasToken": {
+      "Type": "Choice",
+      "Choices": [
+        { "Condition": "{% $r.task_token != '' %}", "Next": "ReleaseToken" }
+      ],
+      "Default": "Done"
+    },
+
+    "ReleaseToken": {
+      "Comment": "Wakes up the execution that is paused in AskWhatHappened. A stale token (already timed out) is not an error.",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:sfn:sendTaskSuccess",
+      "Arguments": {
+        "TaskToken": "{% $r.task_token %}",
+        "Output": "{% $string({'action': $r.action}) %}"
+      },
+      "Catch": [
+        { "ErrorEquals": ["States.ALL"], "Next": "Done" }
+      ],
+      "Next": "Done"
+    },
+
+    "NotifyError": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${NotifyFunctionArn}",
+        "Payload": {
+          "chat_id": "{% $chat %}",
+          "kind": "error"
+        }
+      },
+      "Next": "Done"
+    },
+
+    "Done": {
+      "Type": "Succeed"
+    }
+  }
+}
