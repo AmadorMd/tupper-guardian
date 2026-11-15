@@ -329,7 +329,16 @@ def resolve(event):
         pending = [i for i in _active_tuppers(fridge_key) if i.get("needs_review")]
         review = _review_question(fridge_key, pending)
         return {"action": "review", "review_id": review.get("item_id", ""), "review": review}
-    previous = _close(fridge_key, TUPPER_PREFIX + tupper_id, CLOSING_STATUS.get(action))
+    item_id = TUPPER_PREFIX + tupper_id
+    if action == "snooze":
+        # Only an open question can be postponed. An old button on an item that
+        # was left for review must not promise a question nobody will ask.
+        current = _tuppers().get_item(
+            Key={"chat_id": fridge_key, "item_id": item_id}, ConsistentRead=True
+        ).get("Item")
+        if current and current.get("status") == "ACTIVE" and not current.get("task_token"):
+            return {"action": "pending", "food": current["food"]}
+    previous = _close(fridge_key, item_id, CLOSING_STATUS.get(action))
     if not previous:
         return {"action": "already"}
     result = {
@@ -452,6 +461,11 @@ def link(event):
     previous_fridge = _fridge_key(chat_key)
     if previous_fridge == fridge_key:
         return {"linked": False}
+    # Leaving a fridge nobody else shares would hide its food from everyone.
+    stays_shared = any(member != chat_key for member in _members(previous_fridge))
+    left_behind = 0 if stays_shared else len(_active_tuppers(previous_fridge))
+    if left_behind:
+        return {"linked": False, "own_items": left_behind}
     # The code is single use: only the caller that deletes it gets in.
     if not _conditional(
         lambda: _tuppers().delete_item(Key=key, ConditionExpression="attribute_exists(item_id)")

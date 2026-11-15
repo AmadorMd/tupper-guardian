@@ -159,7 +159,8 @@ After deploying in demo mode (a "day" lasts 20 seconds):
 - Shelf-life values are conservative lower bounds of general USDA / FoodKeeper
   guidance. They are a reminder aid, not food-safety advice.
 - The webhook is protected by an unguessable path segment and rate limiting.
-- A person belongs to one fridge at a time.
+- A person belongs to one fridge at a time. Joining another one is refused
+  while it would leave food in a fridge nobody else shares.
 - Telegram is the prototype channel. WhatsApp and voice-message input are the
   natural next steps.
 

@@ -124,6 +124,11 @@ def _resolved(data):
         return Message(
             "De acuerdo, te vuelvo a preguntar mañana. Si huele o se ve raro, mejor tíralo."
         )
+    if action == "pending":
+        return Message(
+            f"Tu {data.get('food') or 'alimento'} sigue en el refri como vencido. "
+            "Escribe /refri para revisarlo."
+        )
     if action == "review":
         if data.get("review_id"):
             return Message("Vamos uno por uno. 👇")
@@ -183,6 +188,14 @@ def _link(data):
         return Message(
             f"Listo, ya compartes el refri de {name}. Escribe /refri para ver qué hay. "
             "Te avisaré cuando un alimento venza y nadie lo haya atendido."
+        )
+    own_items = data.get("own_items", 0)
+    if own_items:
+        food = "1 alimento" if own_items == 1 else f"{own_items} alimentos"
+        return Message(
+            f"Todavía tienes {food} en tu refri, y al cambiarte de refri nadie los vería. "
+            "Escribe /refri, dime qué pasó con cada uno y después abre este mismo enlace "
+            "otra vez."
         )
     return Message(
         "Ese enlace ya no es válido, o ya estás en ese refri. Pide uno nuevo con /familiar."

@@ -93,7 +93,11 @@ def test_waiting_for_the_turn_is_woken_by_a_token_or_polls_again():
     assert wait["Arguments"]["Payload"]["action"] == "wait_turn"
     assert wait["TimeoutSeconds"] == "{% $t.turn_poll_seconds %}"
     assert wait["Next"] == "CheckBeforeAsk"
-    assert wait["Catch"] == [{"ErrorEquals": ["States.Timeout"], "Next": "CheckBeforeAsk"}]
+    assert wait["Catch"] == [
+        {"ErrorEquals": ["States.Timeout"], "Next": "CheckBeforeAsk"},
+        # A failure while waiting must not leave the item unasked and unflagged.
+        {"ErrorEquals": ["States.ALL"], "Next": "Escalate"},
+    ]
 
 
 def test_every_answer_path_wakes_the_next_question():

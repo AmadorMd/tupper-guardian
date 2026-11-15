@@ -444,3 +444,38 @@ def test_link_rejects_own_fridge_unknown_code_and_expired_invite(tables, monkeyp
     assert call("link", chat=333, code="")["linked"] is False
     monkeypatch.setattr(inventory, "_now", lambda: NOW + inventory.INVITE_TTL_SECONDS + 1)
     assert call("link", chat=333, code=code)["linked"] is False
+
+
+def test_joining_is_refused_while_it_would_leave_food_nobody_can_see(tables):
+    code = call("invite", first_name="Lupita")["code"]
+    orphan = store(food="queso", category="other", chat=RELATIVE, first_name="Ana")
+    before = tables.scan()["Items"]
+
+    refused = call("link", chat=RELATIVE, code=code, first_name="Ana")
+
+    assert refused["linked"] is False and refused["own_items"] == 1
+    assert tables.scan()["Items"] == before  # the code is not spent
+    call("resolve", chat=RELATIVE, data=f"t|{orphan['tupper_id']}")
+    assert call("link", chat=RELATIVE, code=code, first_name="Ana")["linked"] is True
+
+
+def test_leaving_a_fridge_that_others_still_share_is_allowed(tables):
+    share_fridge()
+    kept = store(food="arroz", category="other", chat=RELATIVE, first_name="Ana")
+    other_fridge = call("invite", chat=999, first_name="Rosa")["code"]
+
+    assert call("link", chat=RELATIVE, code=other_fridge)["linked"] is True
+    assert [item["food"] for item in call("list")["items"]] == ["arroz"]
+    assert stored_item(tables, kept)["status"] == "ACTIVE"
+
+
+def test_old_snooze_button_on_an_item_without_an_open_question_changes_nothing(tables):
+    result = store()
+    escalate(result)
+    before = tables.scan()["Items"]
+
+    pressed = call("resolve", data=f"s|{result['tupper_id']}")
+
+    assert pressed["action"] == "pending" and pressed["food"] == "caldo de pollo"
+    assert pressed["task_token"] == "" and pressed["review_id"] == ""
+    assert tables.scan()["Items"] == before

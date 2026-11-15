@@ -269,3 +269,18 @@ def test_only_proactive_messages_are_spoken():
     }
 
     assert spoken == {"stored", "reminder", "ask"}
+
+
+def test_refused_join_explains_what_to_do_first():
+    one = messages.build("link", {"linked": False, "own_items": 1}).text
+    two = messages.build("link", {"linked": False, "own_items": 2}).text
+
+    assert "1 alimento en tu refri" in one and "/refri" in one
+    assert "2 alimentos en tu refri" in two and "mismo enlace" in two
+    assert "ya no es válido" not in one
+
+
+def test_old_snooze_button_reply_points_to_the_list():
+    text = messages.build("resolved", {"action": "pending", "food": "caldo"}).text
+
+    assert "caldo" in text and "/refri" in text and "mañana" not in text

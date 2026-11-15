@@ -277,6 +277,12 @@
             "States.Timeout"
           ],
           "Next": "CheckBeforeAsk"
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "Escalate"
         }
       ],
       "Next": "CheckBeforeAsk"

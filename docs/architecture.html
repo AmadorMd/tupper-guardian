@@ -91,7 +91,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
     <div><dt>State machine</dt><dd>1</dd></div>
     <div><dt>DynamoDB tables</dt><dd>2</dd></div>
     <div><dt>Stack resources</dt><dd>17</dd></div>
-    <div><dt>Unit tests</dt><dd>113</dd></div>
+    <div><dt>Unit tests</dt><dd>118</dd></div>
     <div><dt>Servers</dt><dd>0</dd></div>
   </dl>
   <nav aria-label="Contents">
@@ -376,8 +376,8 @@ SECONDS_PER_DAY=20 ASK_TIMEOUT_SECONDS=45 ./scripts/deploy.sh</code></pre>
     <table>
       <thead><tr><th>File</th><th>Tests</th><th>What it pins</th></tr></thead>
       <tbody>
-        <tr><td><code>test_notify.py</code></td><td class="num">39</td><td>Message catalog, buttons, last call, health message, review questions, several recipients, voice notes</td></tr>
-        <tr><td><code>test_inventory.py</code></td><td class="num">34</td><td>Shelf life, closing items, review flag, question turns, shared fridge, invitations</td></tr>
+        <tr><td><code>test_notify.py</code></td><td class="num">41</td><td>Message catalog, buttons, last call, health message, review questions, several recipients, voice notes</td></tr>
+        <tr><td><code>test_inventory.py</code></td><td class="num">37</td><td>Shelf life, closing items, review flag, question turns, shared fridge, invitations</td></tr>
         <tr><td><code>test_understand.py</code></td><td class="num">20</td><td>Commands, intent extraction, validation of the model output</td></tr>
         <tr><td><code>test_workflow_definition.py</code></td><td class="num">12</td><td>State machine structure, turn and escalation paths, match with the template</td></tr>
         <tr><td><code>test_telegram.py</code></td><td class="num">8</td><td>Bot API requests, errors that never leak the token, voice upload</td></tr>
@@ -392,7 +392,7 @@ SECONDS_PER_DAY=20 ASK_TIMEOUT_SECONDS=45 ./scripts/deploy.sh</code></pre>
   <ul>
     <li>Shelf-life values are conservative lower bounds of general USDA and FoodKeeper guidance. The bot is a reminder aid, not food-safety advice.</li>
     <li>Voice messages from the user are not understood yet. The bot says so and asks for text or a photo.</li>
-    <li>A person belongs to one fridge at a time. Items they stored in a previous fridge stay there.</li>
+    <li>A person belongs to one fridge at a time. Joining another one is refused while it would leave food in a fridge nobody else shares.</li>
     <li>Questions asked from the review button do not take the question turn, so one can overlap with a scheduled question.</li>
     <li>Planned next: send a shopping list and have every product stored with a recommended expiry date from a third-party source.</li>
     <li>A change to the webhook method needs a new API Gateway deployment: rename <code>WebhookDeploymentV1</code> in the template.</li>
