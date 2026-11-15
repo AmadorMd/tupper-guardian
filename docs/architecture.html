@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{margin:0}img{max-width:100%}</style>
+<title>Tupper Guardian Architecture</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: one reading column, diagrams and tables allowed to scroll sideways inside their own frame. */
+:root {
+  --bg: #f2f6f7; --surface: #ffffff; --ink: #12242b; --muted: #567079; --line: #d2dee2;
+  --accent: #0b7285; --accent-soft: #dff0f3; --warn: #a65207; --warn-soft: #fcefd8; --code-bg: #e8eff1;
+  --display: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+  --body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d181d; --surface: #14242b; --ink: #e3edf0; --muted: #93aab3; --line: #2a414b;
+    --accent: #55c6d8; --accent-soft: #12363f; --warn: #f0b354; --warn-soft: #382a11; --code-bg: #1a2e36;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d181d; --surface: #14242b; --ink: #e3edf0; --muted: #93aab3; --line: #2a414b;
+  --accent: #55c6d8; --accent-soft: #12363f; --warn: #f0b354; --warn-soft: #382a11; --code-bg: #1a2e36;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.6; }
+.page {
+  max-width: 900px; margin: 0 auto; padding-block: 40px 72px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 44px;
+}
+header { display: flex; flex-direction: column; gap: 12px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin: 0; }
+h1 { font-family: var(--display); font-size: clamp(30px, 6vw, 44px); line-height: 1.1; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+.lede { font-size: 18px; color: var(--muted); max-width: 66ch; margin: 0; }
+section { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+h2 { font-family: var(--display); font-size: 24px; line-height: 1.2; margin: 0; text-wrap: balance; padding-top: 18px; border-top: 1px solid var(--line); }
+h3 { font-family: var(--display); font-size: 17px; margin: 8px 0 0; }
+p, ul, ol { margin: 0; max-width: 70ch; }
+ul, ol { padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+a { color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code { font-family: var(--mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+pre { font-family: var(--mono); font-size: 13px; line-height: 1.55; background: var(--code-bg); padding: 14px 16px; border-radius: 6px; overflow-x: auto; margin: 0; }
+pre code { background: none; padding: 0; font-size: inherit; overflow-wrap: normal; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin: 0; }
+.facts div { background: var(--surface); padding: 12px 14px; }
+.facts dt { font-size: 12px; color: var(--muted); }
+.facts dd { margin: 2px 0 0; font-family: var(--display); font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+nav ul { list-style: none; padding: 0; flex-direction: row; flex-wrap: wrap; gap: 6px 18px; max-width: none; font-size: 14px; }
+.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+figure { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+figure svg { display: block; min-width: 760px; width: 100%; height: auto; }
+figcaption { font-size: 14px; color: var(--muted); max-width: 70ch; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; }
+.note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 10px 14px; border-radius: 0 6px 6px 0; max-width: 70ch; }
+.note strong { color: var(--warn); }
+/* diagram parts */
+.box { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+.box-core { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+.box-warn { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 1.5; }
+.t { fill: var(--ink); font-family: var(--display); font-size: 13.5px; font-weight: 600; text-anchor: middle; }
+.s { fill: var(--muted); font-family: var(--body); font-size: 11px; text-anchor: middle; }
+.l { fill: var(--muted); font-family: var(--mono); font-size: 10.5px; text-anchor: middle; }
+.la { fill: var(--accent); }
+.edge { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.edge-accent { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.head { fill: var(--muted); }
+.head-accent { fill: var(--accent); }
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+</head>
+<body>
+
+<div class="page">
+<header>
+  <p class="eyebrow">Architecture guide · serverless on AWS</p>
+  <h1>Tupper Guardian</h1>
+  <p class="lede">A Telegram bot that remembers what you put in the fridge, warns you before it goes bad, and asks what happened to it. Built for older adults: no app, no forms. This page explains how every piece fits together.</p>
+  <dl class="facts">
+    <div><dt>Lambda functions</dt><dd>3</dd></div>
+    <div><dt>State machine</dt><dd>1</dd></div>
+    <div><dt>DynamoDB tables</dt><dd>2</dd></div>
+    <div><dt>Stack resources</dt><dd>17</dd></div>
+    <div><dt>Unit tests</dt><dd>84</dd></div>
+    <div><dt>Servers</dt><dd>0</dd></div>
+  </dl>
+  <nav aria-label="Contents">
+    <ul>
+      <li><a href="#architecture">Architecture</a></li>
+      <li><a href="#request">A message, step by step</a></li>
+      <li><a href="#lifecycle">Life of a stored item</a></li>
+      <li><a href="#human">Human in the loop</a></li>
+      <li><a href="#functions">Functions</a></li>
+      <li><a href="#data">Data model</a></li>
+      <li><a href="#model">What the model does</a></li>
+      <li><a href="#security">Security</a></li>
+      <li><a href="#config">Configuration</a></li>
+      <li><a href="#deploy">Deploy and operate</a></li>
+      <li><a href="#tests">Tests</a></li>
+      <li><a href="#limits">Limits</a></li>
+    </ul>
+  </nav>
+</header>
+
+<section id="architecture">
+  <h2>Architecture</h2>
+  <p>Telegram calls a webhook on API Gateway. API Gateway starts a Step Functions execution directly, with no Lambda in between. The workflow owns all the logic and all the waiting. Lambda functions exist only where there is no native integration: understanding a message, changing inventory, and talking to Telegram.</p>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 934 420" role="img" aria-label="Architecture diagram: Telegram to API Gateway to Step Functions, which calls three Lambda functions that use Bedrock, DynamoDB and Polly">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="ahA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head-accent" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <path class="edge-accent" d="M485 120V22H922V200H912" marker-end="url(#ahA)"/>
+        <text class="l la" x="700" y="15">GetItem after every wait · no Lambda</text>
+        <path class="edge" d="M130 200H188" marker-end="url(#ah)"/>
+        <text class="l" x="160" y="191">webhook</text>
+        <path class="edge" d="M320 200H408" marker-end="url(#ah)"/>
+        <text class="l" x="365" y="191">StartExecution</text>
+        <path class="edge" d="M560 150C590 150 580 67 608 67" marker-end="url(#ah)"/>
+        <path class="edge" d="M560 200H608" marker-end="url(#ah)"/>
+        <path class="edge" d="M560 250C590 250 580 333 608 333" marker-end="url(#ah)"/>
+        <path class="edge" d="M750 67H798" marker-end="url(#ah)"/>
+        <path class="edge" d="M750 200H798" marker-end="url(#ah)"/>
+        <path class="edge" d="M750 333H798" marker-end="url(#ah)"/>
+        <path class="edge" d="M680 360V402H75V232" marker-end="url(#ah)"/>
+        <text class="l" x="378" y="394">sendMessage · sendVoice</text>
+
+        <rect class="box" x="20" y="170" width="110" height="60" rx="6"/>
+        <text class="t" x="75" y="197">Telegram</text><text class="s" x="75" y="214">user chat</text>
+        <rect class="box" x="190" y="170" width="130" height="60" rx="6"/>
+        <text class="t" x="255" y="197">API Gateway</text><text class="s" x="255" y="214">REST, secret path</text>
+        <rect class="box-core" x="410" y="120" width="150" height="160" rx="6"/>
+        <text class="t" x="485" y="188">Step Functions</text><text class="s" x="485" y="206">Standard workflow</text><text class="s" x="485" y="221">one run per update</text>
+        <rect class="box" x="610" y="40" width="140" height="54" rx="6"/>
+        <text class="t" x="680" y="63">understand</text><text class="s" x="680" y="80">Lambda · text or photo</text>
+        <rect class="box" x="610" y="173" width="140" height="54" rx="6"/>
+        <text class="t" x="680" y="196">inventory</text><text class="s" x="680" y="213">Lambda · state changes</text>
+        <rect class="box" x="610" y="306" width="140" height="54" rx="6"/>
+        <text class="t" x="680" y="329">notify</text><text class="s" x="680" y="346">Lambda · messages</text>
+        <rect class="box" x="800" y="40" width="110" height="54" rx="6"/>
+        <text class="t" x="855" y="63">Bedrock</text><text class="s" x="855" y="80">Nova Lite</text>
+        <rect class="box" x="800" y="173" width="110" height="54" rx="6"/>
+        <text class="t" x="855" y="196">DynamoDB</text><text class="s" x="855" y="213">2 tables</text>
+        <rect class="box" x="800" y="306" width="110" height="54" rx="6"/>
+        <text class="t" x="855" y="329">Polly</text><text class="s" x="855" y="346">voice, es-MX</text>
+      </svg>
+    </div>
+    <figcaption>The dashed line is the workflow reading DynamoDB itself. Not drawn: <code>understand</code> and <code>notify</code> read the bot token from SSM Parameter Store, and <code>understand</code> downloads photos from Telegram.</figcaption>
+  </figure>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Component</th><th>Role</th><th>Why this choice</th></tr></thead>
+      <tbody>
+        <tr><td>API Gateway (REST)</td><td>Receives the webhook and starts the workflow</td><td>Direct service integration: Telegram gets its <code>200</code> at once, and no code runs for the handoff</td></tr>
+        <tr><td>Step Functions (Standard)</td><td>Routing, waiting, human-in-the-loop pause, escalation</td><td>Waits for days cost nothing while paused; Standard supports task tokens and long executions</td></tr>
+        <tr><td>Lambda × 3</td><td>Python 3.13 on arm64, 256 MB</td><td>Only the parts without a native integration</td></tr>
+        <tr><td>DynamoDB</td><td>Items, profiles, invitations, shelf-life table</td><td>On-demand billing, conditional writes for safe state changes</td></tr>
+        <tr><td>Bedrock</td><td>Extracts intent, food and category from text or a photo</td><td>Multimodal model behind one <code>Converse</code> call</td></tr>
+        <tr><td>Polly</td><td>Spanish voice notes for confirmations and alerts</td><td>Accessibility for users who read with difficulty</td></tr>
+        <tr><td>SSM Parameter Store</td><td>Bot token as a <code>SecureString</code></td><td>The token never lives in code, in the template or in logs</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="request">
+  <h2>A message, step by step</h2>
+  <p>What happens when someone sends <em>«Guardé caldo de pollo en el refri»</em>:</p>
+  <ol>
+    <li>Telegram posts the update to <code>/prod/webhook/&lt;secret&gt;</code>. Only Telegram knows the secret path segment.</li>
+    <li>API Gateway calls <code>StartExecution</code> with the update as input and names the execution <code>tg-&lt;update_id&gt;</code>. If Telegram redelivers the same update, the name already exists and no second execution starts. API Gateway always answers <code>200</code>.</li>
+    <li>The <code>Route</code> state looks at the update: a button press goes to <code>ResolveButton</code>, a message goes to <code>Understand</code>.</li>
+    <li><code>understand</code> handles slash commands itself and sends free text or a photo to Bedrock. It returns <code>{intent, food, category}</code>, already validated.</li>
+    <li><code>ByIntent</code> branches: store, consumed, list, invite, link, or a plain reply (help, unknown, voice not supported).</li>
+    <li>For a store, <code>inventory</code> looks up the shelf life, writes the item and returns its two timestamps: when to remind and when it expires.</li>
+    <li><code>notify</code> sends the confirmation as text and as a voice note. The execution then stays alive, waiting.</li>
+  </ol>
+</section>
+
+<section id="lifecycle">
+  <h2>Life of a stored item</h2>
+  <p>Each stored item keeps one execution paused until its deadline. After every wait the workflow re-reads the item from DynamoDB, so something you already ate triggers nothing.</p>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 824 320" role="img" aria-label="Item lifecycle: stored, reminder, up to three questions, then closed by an answer or expired without one">
+        <path class="edge" d="M140 57H173" marker-end="url(#ah)"/><text class="l" x="157" y="20">wait</text>
+        <path class="edge" d="M305 57H338" marker-end="url(#ah)"/><text class="l" x="322" y="20">wait</text>
+        <path class="edge" d="M470 57H503" marker-end="url(#ah)"/><text class="l" x="487" y="20">Sigue ahí</text>
+        <path class="edge" d="M635 57H668" marker-end="url(#ah)"/><text class="l" x="652" y="20">Sigue ahí</text>
+        <path class="edge" d="M405 84V118M570 84V118M735 84V118M405 118H735"/>
+        <path class="edge" d="M470 118V148" marker-end="url(#ah)"/>
+        <path class="edge" d="M715 118V148" marker-end="url(#ah)"/>
+        <path class="edge" d="M715 204V238" marker-end="url(#ah)"/>
+
+        <rect class="box" x="10" y="30" width="130" height="54" rx="6"/>
+        <text class="t" x="75" y="53">Stored</text><text class="s" x="75" y="70">confirmed by voice</text>
+        <rect class="box" x="175" y="30" width="130" height="54" rx="6"/>
+        <text class="t" x="240" y="53">Reminder</text><text class="s" x="240" y="70">one day before</text>
+        <rect class="box-core" x="340" y="30" width="130" height="54" rx="6"/>
+        <text class="t" x="405" y="53">Question 1</text><text class="s" x="405" y="70">at the deadline</text>
+        <rect class="box-core" x="505" y="30" width="130" height="54" rx="6"/>
+        <text class="t" x="570" y="53">Question 2</text><text class="s" x="570" y="70">one day later</text>
+        <rect class="box-warn" x="670" y="30" width="130" height="54" rx="6"/>
+        <text class="t" x="735" y="53">Last call</text><text class="s" x="735" y="70">no “Sigue ahí”</text>
+
+        <rect class="box" x="340" y="150" width="260" height="54" rx="6"/>
+        <text class="t" x="470" y="173">Button pressed</text><text class="s" x="470" y="190">eaten or thrown away → item closed</text>
+        <rect class="box-warn" x="620" y="150" width="190" height="54" rx="6"/>
+        <text class="t" x="715" y="173">No answer in time</text><text class="s" x="715" y="190">item marked as expired</text>
+        <rect class="box" x="620" y="240" width="190" height="54" rx="6"/>
+        <text class="t" x="715" y="263">Family member alerted</text><text class="s" x="715" y="280">or an invitation to add one</text>
+      </svg>
+    </div>
+    <figcaption>One-day items skip the reminder, because it would fire immediately. Any of the three questions can end with a button press or with a timeout.</figcaption>
+  </figure>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Item status</th><th>Set when</th></tr></thead>
+      <tbody>
+        <tr><td><code>ACTIVE</code></td><td>The item is stored and nobody has resolved it</td></tr>
+        <tr><td><code>CONSUMED</code></td><td>The user says they ate it, by button or by text</td></tr>
+        <tr><td><code>DISCARDED</code></td><td>The user says they threw it away</td></tr>
+        <tr><td><code>EXPIRED</code></td><td>A question went unanswered, or “Sigue ahí” was pressed past the limit</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="human">
+  <h2>Human in the loop</h2>
+  <p>The question at the deadline is a real pause, not a poll. The <code>AskWhatHappened</code> state uses <code>lambda:invoke.waitForTaskToken</code>: the execution stops and hands out a token that only a button press can redeem.</p>
+  <ol>
+    <li><code>notify</code> saves the task token on the item <strong>before</strong> it sends the buttons, so a fast tap can never arrive ahead of the token it needs.</li>
+    <li>The user taps a button. Telegram sends a new update, which starts a second, short execution.</li>
+    <li>That execution calls <code>inventory</code> to apply the button with a conditional write. The call returns the saved token and removes it from the item.</li>
+    <li>The short execution calls <code>SendTaskSuccess</code> with the token. The paused execution wakes up with the answer.</li>
+    <li>If nobody answers within the timeout, the pause ends with <code>States.Timeout</code> and the workflow moves to <code>Expire</code>.</li>
+  </ol>
+  <h3>Rules built on top of the pause</h3>
+  <ul>
+    <li><strong>“Sigue ahí” postpones the question one day, twice at most.</strong> The workflow counts the questions in a variable and flags the third as <code>last_chance</code>.</li>
+    <li><strong>The last call has two buttons only:</strong> “Ya me lo comí” and “Ya lo tiré”. The goal is to always learn how the food ended up.</li>
+    <li><strong>Eating food a full day past its deadline is not celebrated.</strong> It does not count as a rescued container. The reply, sent as text and voice, says that throwing food away is hard and that this is about health.</li>
+    <li><strong>An unanswered item escalates.</strong> It is marked expired and the linked family member gets a message. With nobody linked, the bot explains what <code>/familiar</code> is for and invites the user to add someone.</li>
+    <li><strong>A second tap is harmless.</strong> The conditional write fails and the bot answers that the item was already resolved.</li>
+  </ul>
+</section>
+
+<section id="functions">
+  <h2>Functions</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Function</th><th>Does</th><th>Can access</th><th>Timeout</th></tr></thead>
+      <tbody>
+        <tr><td><code>understand</code></td><td>Turns a Telegram message into a validated intent. Commands are handled without the model.</td><td>Bedrock <code>InvokeModel</code>, bot token in SSM</td><td class="num">30 s</td></tr>
+        <tr><td><code>inventory</code></td><td>Every DynamoDB state change: store, consume, list, resolve a button, expire, invite, link.</td><td>Read and write on the items table, read on the shelf-life table</td><td class="num">15 s</td></tr>
+        <tr><td><code>notify</code></td><td>Every outbound message: text, buttons, voice notes. Saves task tokens.</td><td><code>UpdateItem</code> on the items table, Polly, bot token in SSM</td><td class="num">25 s</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Two modules have no handler of their own. <code>messages.py</code> holds every user-facing sentence in Spanish, so wording changes never touch logic. <code>telegram.py</code> is a small Bot API client on the standard library, which keeps the deployment package free of third-party dependencies.</p>
+</section>
+
+<section id="data">
+  <h2>Data model</h2>
+  <p>The items table uses <code>chat_id</code> as partition key and <code>item_id</code> as sort key. Three kinds of record share it.</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Record</th><th>Key</th><th>Main attributes</th></tr></thead>
+      <tbody>
+        <tr><td>Stored item</td><td><code>&lt;chat&gt;</code> / <code>T#&lt;random id&gt;</code></td><td><code>food</code>, <code>category</code>, <code>status</code>, <code>stored_at</code>, <code>expires_at</code>, <code>expires_epoch</code>, <code>task_token</code> while a question is open</td></tr>
+        <tr><td>Profile</td><td><code>&lt;chat&gt;</code> / <code>PROFILE</code></td><td><code>first_name</code>, <code>rescued_count</code>, <code>caregiver_chat_id</code></td></tr>
+        <tr><td>Invitation</td><td><code>INVITE</code> / <code>&lt;one-time code&gt;</code></td><td><code>owner_chat_id</code>, <code>ttl</code> (7 days, removed by DynamoDB TTL)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The shelf-life table maps 29 food categories to a conservative number of days. Examples: raw poultry, raw fish and guacamole 1 day; most cooked dishes 3; fresh cheese 5; hard-boiled eggs 7; hard cheese 21. A food outside the list gets 2 days, and the bot says it used a short default.</p>
+</section>
+
+<section id="model">
+  <h2>What the model does, and what it does not</h2>
+  <p>Bedrock only <strong>extracts</strong>. It receives the text or the photo and returns one JSON object with an intent, a short food name and a category. It never decides how long food is safe.</p>
+  <ul>
+    <li>The category must be one of the 29 keys. Anything else becomes <code>other</code>.</li>
+    <li>An unknown intent, malformed JSON or a store without a food name becomes <code>unknown</code>, and the bot asks again.</li>
+    <li>The system prompt treats the user message as data and tells the model never to follow instructions inside it.</li>
+    <li>Text is cut at 500 characters, the food name at 60, and temperature is 0.</li>
+    <li>Photos go from Telegram straight to Bedrock in memory. They are never stored.</li>
+  </ul>
+</section>
+
+<section id="security">
+  <h2>Security</h2>
+  <ul>
+    <li><strong>Webhook:</strong> Telegram cannot sign requests, so the control is an unguessable path segment plus throttling at 10 requests per second (burst 20).</li>
+    <li><strong>Bot token:</strong> an SSM <code>SecureString</code>, read once per execution environment. Error messages report the API method and Telegram's description, never the URL that embeds the token. A test pins this.</li>
+    <li><strong>Least privilege:</strong> each function has its own role. The API Gateway role can only start this state machine.</li>
+    <li><strong>Button data is untrusted:</strong> it is parsed, length-checked and applied only to items in the sender's own chat.</li>
+    <li><strong>Invitations:</strong> a random one-time code, not the owner's chat id, so a guessed id cannot subscribe a stranger. Nobody can link themselves as their own family member.</li>
+    <li><strong>Data at rest:</strong> the items table is encrypted and uses on-demand capacity.</li>
+  </ul>
+</section>
+
+<section id="config">
+  <h2>Configuration</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Setting</th><th>Default</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>AWS_REGION</code></td><td>CLI region, then <code>us-east-1</code></td><td>Where the stack is deployed</td></tr>
+        <tr><td><code>SECONDS_PER_DAY</code></td><td class="num">86400</td><td>Length of a “day”. A small value speeds up demos</td></tr>
+        <tr><td><code>ASK_TIMEOUT_SECONDS</code></td><td class="num">21600</td><td>How long a question waits before the item expires (6 hours)</td></tr>
+        <tr><td><code>MODEL_ID</code></td><td><code>us.amazon.nova-lite-v1:0</code></td><td>Bedrock model or inference profile. Must accept images</td></tr>
+        <tr><td><code>VOICE_ENABLED</code></td><td><code>true</code></td><td>Send voice notes with Polly</td></tr>
+        <tr><td><code>STACK_NAME</code></td><td><code>tupper-guardian</code></td><td>CloudFormation stack name</td></tr>
+        <tr><td><code>BOT_TOKEN_PARAM</code></td><td><code>/tupper-guardian/bot-token</code></td><td>SSM parameter that holds the bot token</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="deploy">
+  <h2>Deploy and operate</h2>
+  <p>There is no pipeline. One script packages the code, deploys the stack, seeds the shelf-life table and registers the webhook. It needs only the AWS CLI and Python 3.</p>
+<pre><code>./scripts/store_bot_token.sh        # once: saves the token in SSM
+./scripts/deploy.sh                 # real timings
+
+# demo: a day lasts 20 seconds, questions time out after 45
+SECONDS_PER_DAY=20 ASK_TIMEOUT_SECONDS=45 ./scripts/deploy.sh</code></pre>
+  <p>Before creating anything, <code>deploy.sh</code> checks that the token exists, that the Bedrock model answers in the chosen region and that Telegram accepts the token.</p>
+  <div class="note"><strong>Current deployment:</strong> region <code>us-east-2</code>, demo timings. The account's organization policy denies most services in <code>us-east-1</code>, so export <code>AWS_REGION=us-east-2 AWS_DEFAULT_REGION=us-east-2</code> in the same shell before running any script.</div>
+  <h3>When something fails</h3>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Symptom</th><th>Cause and fix</th></tr></thead>
+      <tbody>
+        <tr><td><code>AccessDenied</code> with “explicit deny in a service control policy”</td><td>Wrong region for this account. Export the allowed region and rerun</td></tr>
+        <tr><td><code>CERTIFICATE_VERIFY_FAILED</code> in <code>telegram_admin.py</code></td><td>The python.org build for macOS has no root certificates. Run <code>export SSL_CERT_FILE=/etc/ssl/cert.pem</code></td></tr>
+        <tr><td>“Bedrock model … is not usable”</td><td>List the region's inference profiles and rerun with <code>MODEL_ID=&lt;id&gt;</code></td></tr>
+        <tr><td>The bot does not answer</td><td><code>python3 scripts/telegram_admin.py info</code> shows the webhook status and Telegram's last delivery error. Then read the latest executions in the Step Functions console</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>To remove everything: <code>aws cloudformation delete-stack --stack-name tupper-guardian</code>.</p>
+</section>
+
+<section id="tests">
+  <h2>Tests</h2>
+  <p>The suite needs no AWS account and no network. DynamoDB and SSM are mocked with moto; Bedrock, Polly and Telegram are replaced by fakes.</p>
+<pre><code>python3 -m venv .venv &amp;&amp; .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest</code></pre>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>File</th><th>Tests</th><th>What it pins</th></tr></thead>
+      <tbody>
+        <tr><td><code>test_notify.py</code></td><td class="num">31</td><td>Message catalog, buttons, last call, health message, task-token ordering, voice notes</td></tr>
+        <tr><td><code>test_inventory.py</code></td><td class="num">21</td><td>Shelf life, alert scheduling, closing items, overdue rule, buttons, family linking</td></tr>
+        <tr><td><code>test_understand.py</code></td><td class="num">17</td><td>Commands, intent extraction, validation of the model output</td></tr>
+        <tr><td><code>test_telegram.py</code></td><td class="num">8</td><td>Bot API requests, errors that never leak the token, voice upload</td></tr>
+        <tr><td><code>test_workflow_definition.py</code></td><td class="num">7</td><td>State machine structure and its match with the template</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Live checks on AWS are tracked in <code>odd/tasks/tupper-guardian.md</code>, together with the specs and the decision log.</p>
+</section>
+
+<section id="limits">
+  <h2>Limits</h2>
+  <ul>
+    <li>Shelf-life values are conservative lower bounds of general USDA and FoodKeeper guidance. The bot is a reminder aid, not food-safety advice.</li>
+    <li>Voice messages from the user are not understood yet. The bot says so and asks for text or a photo.</li>
+    <li>One family member per user. Linking a new one replaces the previous one.</li>
+    <li>A change to the webhook method needs a new API Gateway deployment: rename <code>WebhookDeploymentV1</code> in the template.</li>
+    <li>Telegram is the prototype channel. WhatsApp and voice input are the natural next steps.</li>
+  </ul>
+</section>
+
+<footer>Tupper Guardian · built for the AWS “Weekend Challenge: No Pipeline, No Problem” · documentation generated from the code on 2026-11-15.</footer>
+</div>
+</body>
+</html>

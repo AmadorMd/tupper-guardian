@@ -52,6 +52,10 @@ flowchart LR
 | "¿Qué tengo en el refri?" | Lists what is still active |
 | `/familiar` | Returns a link that registers a family member as caregiver |
 
+The full architecture guide, with diagrams of the item lifecycle and the
+human-in-the-loop flow, is in [`docs/architecture.html`](docs/architecture.html).
+Open it in a browser.
+
 ## Deploy
 
 Requirements: AWS CLI v2 with credentials, `python3`, a bot token from
