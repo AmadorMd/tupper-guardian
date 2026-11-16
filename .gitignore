@@ -5,3 +5,7 @@ __pycache__/
 .packaged.yaml
 *.pyc
 odd/
+# Agent skills installed locally (HyperFrames), not part of the project
+.agents/
+.claude/
+skills-lock.json
