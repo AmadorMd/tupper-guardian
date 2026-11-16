@@ -87,6 +87,13 @@ def _stored_list(data):
         parts.append("Te aviso uno por uno antes de que venzan.")
     if skipped:
         parts.append(f"No anoté {', '.join(skipped)} porque no va en el refri.")
+    dropped = int(data.get("dropped") or 0)
+    if dropped:
+        more = "1 alimento más" if dropped == 1 else f"{dropped} alimentos más"
+        parts.append(
+            f"Tu lista traía {more} de los que puedo anotar de una vez. "
+            "Mándamelos en otro mensaje."
+        )
     speech = f"Anoté {count} de tu lista. Te aviso antes de que venzan." if items else None
     return Message("\n\n".join(parts), speech=speech)
 

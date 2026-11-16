@@ -513,3 +513,26 @@ def test_store_list_goes_to_the_shared_fridge(tables):
 
     assert result["items"][0]["fridge_key"] == str(CHAT)
     assert stored_item(tables, result["items"][0])["stored_by"] == str(RELATIVE)
+
+
+def test_store_list_retried_after_a_failure_does_not_duplicate_food(tables):
+    items = [
+        {"food": "caldo", "category": "cooked_soup_stew"},
+        {"food": "guacamole", "category": "guacamole"},
+    ]
+    first = call("store_list", items=items, request_id="tg-42")
+    again = call("store_list", items=items, request_id="tg-42")
+
+    assert [i["item_id"] for i in again["items"]] == [i["item_id"] for i in first["items"]]
+    assert again["items"] == first["items"]
+    assert len(call("list")["items"]) == 2
+
+
+def test_store_list_retry_keeps_food_already_resolved(tables):
+    items = [{"food": "caldo", "category": "cooked_soup_stew"}]
+    first = call("store_list", items=items, request_id="tg-43")
+    call("consume", food="caldo")
+
+    call("store_list", items=items, request_id="tg-43")
+
+    assert stored_item(tables, first["items"][0])["status"] == "CONSUMED"

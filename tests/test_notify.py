@@ -310,3 +310,12 @@ def test_shopping_list_with_nothing_for_the_fridge():
     text = messages.build("stored_list", {"items": [], "skipped": ["arroz"]}).text
 
     assert "No anoté arroz" in text and "Anoté" not in text.replace("No anoté", "")
+
+
+def test_shopping_list_over_the_cap_asks_for_the_rest():
+    text = messages.build(
+        "stored_list",
+        {"items": [{"food": "leche", "days": 7}], "skipped": [], "dropped": 5},
+    ).text
+
+    assert "5 alimentos más" in text and "otro mensaje" in text

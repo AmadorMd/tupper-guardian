@@ -100,7 +100,7 @@ def _clean_food(food):
 def _parse_list(entries):
     """Validate shopping-list items: drop blanks and repeats, set pantry food
     apart, and cap how many foods one message can track."""
-    items, skipped, seen = [], [], set()
+    items, skipped, seen, dropped = [], [], set(), 0
     for entry in entries if isinstance(entries, list) else []:
         if not isinstance(entry, dict):
             continue
@@ -113,9 +113,16 @@ def _parse_list(entries):
             skipped.append(food)
         elif len(items) < MAX_LIST_ITEMS:
             items.append({"food": food, "category": category if category in CATEGORIES else "other"})
+        else:
+            dropped += 1
     if not items and not skipped:
         return {"intent": "unknown"}
-    return {"intent": "store_list", "items": items, "skipped": skipped[:MAX_LIST_ITEMS]}
+    return {
+        "intent": "store_list",
+        "items": items,
+        "skipped": skipped[:MAX_LIST_ITEMS],
+        "dropped": dropped,
+    }
 
 
 def _parse(raw):

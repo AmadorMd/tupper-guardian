@@ -153,7 +153,9 @@
           "chat_id": "{% $chat %}",
           "first_name": "{% $ctx.first_name %}",
           "items": "{% $ctx.items %}",
-          "skipped": "{% $ctx.skipped %}"
+          "skipped": "{% $ctx.skipped %}",
+          "dropped": "{% $ctx.dropped %}",
+          "request_id": "{% $states.context.Execution.Name %}"
         }
       },
       "Assign": {

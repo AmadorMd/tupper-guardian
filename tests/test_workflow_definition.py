@@ -155,3 +155,9 @@ def test_state_machine_may_start_only_its_own_executions():
     block = TEMPLATE.split("GuardianStateMachine:")[1].split("# ----")[0]
     assert "Action: states:StartExecution" in block
     assert ":stateMachine:GuardianStateMachine-*" in block
+
+
+def test_shopping_list_storage_is_keyed_by_the_execution_so_retries_are_safe():
+    payload = STATES["StoreList"]["Arguments"]["Payload"]
+    assert payload["request_id"] == "{% $states.context.Execution.Name %}"
+    assert payload["dropped"] == "{% $ctx.dropped %}"

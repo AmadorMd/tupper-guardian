@@ -16,6 +16,7 @@ Dispatches on `event["action"]`; every response includes `task_token`,
 uniformly.
 """
 
+import hashlib
 import math
 import os
 import secrets
@@ -232,29 +233,39 @@ def _pick(food, items):
     return None
 
 
-def _store_one(chat_key, fridge_key, first_name, food, category):
-    """Put one food in the fridge; return what its tracking workflow needs."""
+def _store_one(chat_key, fridge_key, first_name, food, category, tupper_id=None):
+    """Put one food in the fridge; return what its tracking workflow needs.
+
+    With a given `tupper_id` the write happens only once: a retry finds the
+    item already there, keeps it as it is (even if it was resolved since),
+    and returns the same dates as the first attempt."""
     category = category or "other"
     days, default_used = _shelf_days(category)
     per_day = _seconds_per_day()
     now = _now()
     expires = now + days * per_day
-    tupper_id = secrets.token_hex(6)
+    write = {}
+    if tupper_id:
+        write["ConditionExpression"] = "attribute_not_exists(item_id)"
+    tupper_id = tupper_id or secrets.token_hex(6)
     item_id = TUPPER_PREFIX + tupper_id
-    _tuppers().put_item(
-        Item={
-            "chat_id": fridge_key,
-            "item_id": item_id,
-            "food": food,
-            "category": category,
-            "status": "ACTIVE",
-            "stored_by": chat_key,
-            "stored_by_name": first_name or "",
-            "stored_at": _iso(now),
-            "expires_at": _iso(expires),
-            "expires_epoch": int(expires),
-        }
-    )
+    item = {
+        "chat_id": fridge_key,
+        "item_id": item_id,
+        "food": food,
+        "category": category,
+        "status": "ACTIVE",
+        "stored_by": chat_key,
+        "stored_by_name": first_name or "",
+        "stored_at": _iso(now),
+        "expires_at": _iso(expires),
+        "expires_epoch": int(expires),
+    }
+    if _conditional(lambda: _tuppers().put_item(Item=item, **write)) is None:
+        existing = _tuppers().get_item(
+            Key={"chat_id": fridge_key, "item_id": item_id}, ConsistentRead=True
+        )["Item"]
+        expires = int(existing["expires_epoch"])
     return {
         "fridge_key": fridge_key,
         "tupper_id": tupper_id,
@@ -285,12 +296,27 @@ def store_list(event):
     chat_key = str(event["chat_id"])
     fridge_key = _fridge_key(chat_key)
     first_name = event.get("first_name")
+    request_id = str(event.get("request_id") or "")
     items = [
-        _store_one(chat_key, fridge_key, first_name, entry["food"], entry.get("category"))
-        for entry in event.get("items") or []
+        _store_one(
+            chat_key,
+            fridge_key,
+            first_name,
+            entry["food"],
+            entry.get("category"),
+            # Same request and position, same id: a retried write is a no-op.
+            hashlib.sha256(f"{request_id}#{index}".encode()).hexdigest()[:12]
+            if request_id
+            else None,
+        )
+        for index, entry in enumerate(event.get("items") or [])
     ]
     _remember_name(chat_key, first_name)
-    return {"items": items, "skipped": event.get("skipped") or []}
+    return {
+        "items": items,
+        "skipped": event.get("skipped") or [],
+        "dropped": int(event.get("dropped") or 0),
+    }
 
 
 def consume(event):

@@ -214,3 +214,12 @@ def test_prompt_explains_shopping_lists_and_grocery_categories():
     assert {"raw_eggs", "milk_unopened", "whole_fruit", "root_vegetables"} <= understand.CATEGORIES
     # "pantry" is a list-only marker, never a shelf-life category.
     assert "pantry" not in understand.CATEGORIES
+
+
+def test_shopping_list_over_the_cap_says_how_many_were_left_out(bedrock):
+    many = [{"food": f"fruta {n}", "category": "whole_fruit"} for n in range(25)]
+    bedrock({"intent": "store_list", "items": many})
+
+    result = understand.handler(message(text="mi lista"))
+
+    assert result["dropped"] == 5
