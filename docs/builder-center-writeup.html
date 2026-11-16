@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tupper Guardian Write-up</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --surface: #ffffff; --text: #1d2125; --muted: #5b636b;
+    --line: #e2dfd6; --accent: #0f766e; --accent-soft: #e6f4f1; --warn: #9a3412;
+    --code-bg: #f1efe8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15181b; --surface: #1d2125; --text: #e8e6e1; --muted: #a3aab1;
+      --line: #30363c; --accent: #5eead4; --accent-soft: #163330; --warn: #fdba74;
+      --code-bg: #262b30;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15181b; --surface: #1d2125; --text: #e8e6e1; --muted: #a3aab1;
+    --line: #30363c; --accent: #5eead4; --accent-soft: #163330; --warn: #fdba74;
+    --code-bg: #262b30;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 17px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 80px; }
+  .review-note {
+    background: var(--accent-soft); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 16px; font-size: 15px; color: var(--muted); margin-bottom: 32px;
+  }
+  .review-note strong { color: var(--text); }
+  h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .subtitle { color: var(--muted); font-size: 1.15rem; margin: 0 0 24px; }
+  h2 { font-size: 1.45rem; margin: 48px 0 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.1rem; margin: 28px 0 8px; }
+  p, li { max-width: 72ch; }
+  a { color: var(--accent); }
+  code { background: var(--code-bg); padding: 1px 6px; border-radius: 5px; font-size: 0.88em; }
+  blockquote {
+    margin: 16px 0; padding: 8px 16px; border-left: 4px solid var(--accent);
+    background: var(--surface); border-radius: 0 8px 8px 0;
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; margin: 12px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .table-wrap { overflow-x: auto; }
+  figure { margin: 20px 0 28px; }
+  .diagram {
+    background: #ffffff; border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px; overflow-x: auto;
+  }
+  .diagram svg { display: block; width: 100%; min-width: 640px; height: auto; }
+  figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+  button.png {
+    font: inherit; font-size: 13px; padding: 4px 10px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface); color: var(--text);
+  }
+  .video {
+    border: 2px dashed var(--line); border-radius: 12px; padding: 20px; text-align: center;
+    color: var(--muted); background: var(--surface);
+  }
+  .covers { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .cover {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+  }
+  .cover svg { width: 100%; height: auto; display: block; border-radius: 8px; background: #fff; }
+  .cover h3 { margin: 12px 0 4px; }
+  .cover p, .cover li { font-size: 15px; }
+  .cover ul { padding-left: 18px; margin: 6px 0; }
+  .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .appendix { margin-top: 64px; padding-top: 16px; border-top: 3px double var(--line); }
+  @media (max-width: 600px) { h1 { font-size: 1.7rem; } body { font-size: 16px; } }
+</style>
+</head>
+<body>
+<main>
+
+<div class="review-note">
+  <strong>Review copy.</strong> Everything above "Appendix" is the article to paste into
+  AWS Builder Center. Each diagram has a <em>Download PNG</em> button so you can upload
+  it as an image. Replace the video placeholder before publishing. The appendix holds
+  the cover photo options and is not part of the article.
+</div>
+
+<h1>Tupper Guardian: a family fridge that remembers for you, built on Step Functions human-in-the-loop</h1>
+<p class="subtitle">A Telegram bot that tracks leftovers and groceries, asks what happened to each one when it expires, and never lets food disappear from the list just because nobody answered. 100% serverless, no pipeline.</p>
+
+<h2>The problem</h2>
+
+<h3>A slice of cheese nobody remembered</h3>
+<p>One morning, while I was still wondering what to build for this hackathon, my sister and my mother were at the open fridge, talking about a slice of cheese. It was wrapped in one of those plain plastic bags that local shops in Mexico hand you at the counter. It had what looked like mold, and it smelled bad. Nobody could say how long it had been there, or even when any of us had last eaten from it.</p>
+<p>Then it hit me: we had had this exact conversation before. Another food, another container, a can whose date had rubbed off, a bag that never had a date at all.</p>
+
+<h3>Food without a date</h3>
+<p>In Mexico, a lot of food is bought <em>a granel</em>, by weight: ham, cheese, cream, chiles, sliced or scooped at the counter, weighed, and handed over in a plastic bag. There is no sealed package and no printed expiry date. The rule most families follow is simple: if it doesn't smell bad, or even if it doesn't taste bad, it's still good.</p>
+<p>Food-safety content on social media is slowly changing that. But many people still believe that cutting the bad part off a tomato makes it fine, or that ham bought by weight fifteen days ago is still safe. My parents grew up with little to spare. For them, throwing food away can feel worse than eating something nobody remembers cooking or buying.</p>
+
+<h3>It's about health, not savings</h3>
+<p>That is the idea behind Tupper Guardian: help families realize that food has a shelf life, often shorter than they think, and that keeping track of it is less about saving money and more about taking care of the people you live with.</p>
+<p>And it has to be effortless. Inventory apps already exist, and they fail for the same reason every time: nobody wants to sign up on a website, install a new app, or fill in a form after coming home from the market. So Tupper Guardian lives where families already talk every day, in a chat. In Mexico that means WhatsApp; this prototype uses Telegram because it is quicker to build on.</p>
+
+<h2>The solution</h2>
+<p><strong>Tupper Guardian</strong> lives in a chat app people already use (Telegram for this prototype). There is nothing to learn:</p>
+<ul>
+  <li><strong>Tell it or show it.</strong> "Guardé caldo de pollo en el refri" (I put chicken soup in the fridge), or a photo of the container. A multimodal model on Amazon Bedrock recognizes the food.</li>
+  <li><strong>Send the shopping list.</strong> A typed list or a photo of the receipt becomes one tracked item per food.</li>
+  <li><strong>Food outside the fridge counts too.</strong> For a can or a bag of rice the bot asks for the printed expiry date. You can type it or send a photo of the label.</li>
+  <li><strong>It reminds you</strong> the day before something expires, then <strong>asks what happened</strong> with three buttons: "I ate it", "I threw it away", "It's still there".</li>
+  <li><strong>Nothing disappears by silence.</strong> If nobody answers, the food stays on the list flagged for review and the rest of the family is told. A son or daughter can help their parents check the fridge from their own phone.</li>
+  <li><strong>Health first.</strong> If someone says they ate food a full day past its date, the bot doesn't celebrate. It gently explains that eating it can be harmful even if it looks fine.</li>
+  <li><strong>Voice.</strong> Confirmations and alerts also arrive as a voice note (Amazon Polly, Mexican Spanish), which helps older users.</li>
+</ul>
+<blockquote>The AI understands the message; the expiry date comes from food-safety data. The model never decides how long food is safe.</blockquote>
+
+<h2>Demo video</h2>
+<div class="video">▶ <strong>Video link goes here</strong> (public YouTube or Vimeo, under 3 minutes)</div>
+
+<h2>Architecture</h2>
+<p>One <strong>AWS Step Functions Standard workflow</strong> is the backbone. Telegram's webhook calls <strong>Amazon API Gateway</strong>, which starts an execution directly, with no Lambda in between. Three small <strong>AWS Lambda</strong> functions cover only what has no native integration: understanding a message, reading and writing the fridge, and sending messages.</p>
+
+<figure id="fig-architecture">
+<div class="diagram">
+<svg viewBox="0 0 960 560" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif" role="img" aria-labelledby="t1">
+  <title id="t1">Tupper Guardian architecture</title>
+  <defs>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
+  </defs>
+  <rect width="960" height="560" fill="#ffffff"/>
+  <!-- user -->
+  <rect x="16" y="200" width="150" height="104" rx="12" fill="#f1f5f9" stroke="#94a3b8"/>
+  <text x="91" y="236" text-anchor="middle" font-size="15" font-weight="700" fill="#0f172a">Family members</text>
+  <text x="91" y="258" text-anchor="middle" font-size="13" fill="#334155">Telegram: text,</text>
+  <text x="91" y="276" text-anchor="middle" font-size="13" fill="#334155">photos, buttons</text>
+  <!-- api gateway -->
+  <rect x="200" y="196" width="170" height="112" rx="12" fill="#f5f3ff" stroke="#8b5cf6"/>
+  <text x="285" y="226" text-anchor="middle" font-size="15" font-weight="700" fill="#4c1d95">Amazon API Gateway</text>
+  <text x="285" y="248" text-anchor="middle" font-size="12" fill="#4c1d95">REST, secret path,</text>
+  <text x="285" y="265" text-anchor="middle" font-size="12" fill="#4c1d95">throttled. Starts the</text>
+  <text x="285" y="282" text-anchor="middle" font-size="12" fill="#4c1d95">workflow directly</text>
+  <line x1="166" y1="252" x2="196" y2="252" stroke="#475569" stroke-width="2" marker-end="url(#a1)"/>
+  <!-- step functions -->
+  <rect x="404" y="24" width="300" height="470" rx="14" fill="#fdf2f8" stroke="#db2777" stroke-width="1.5"/>
+  <text x="554" y="52" text-anchor="middle" font-size="16" font-weight="700" fill="#831843">AWS Step Functions</text>
+  <text x="554" y="72" text-anchor="middle" font-size="12" fill="#831843">Standard workflow, one execution per update</text>
+  <text x="554" y="88" text-anchor="middle" font-size="12" fill="#831843">and one per tracked food</text>
+  <g font-size="13" fill="#0f172a">
+    <rect x="428" y="104" width="252" height="32" rx="7" fill="#fff" stroke="#f9a8d4"/><text x="554" y="125" text-anchor="middle">Route: message, button or food</text>
+    <rect x="428" y="144" width="252" height="32" rx="7" fill="#fff" stroke="#f9a8d4"/><text x="554" y="165" text-anchor="middle">Understand → Store / Store list</text>
+    <rect x="428" y="184" width="252" height="32" rx="7" fill="#fff" stroke="#f9a8d4"/><text x="554" y="205" text-anchor="middle">Map: start one execution per food</text>
+    <rect x="428" y="224" width="252" height="32" rx="7" fill="#fff" stroke="#f9a8d4"/><text x="554" y="245" text-anchor="middle">Wait until the day before (free)</text>
+    <rect x="428" y="264" width="252" height="32" rx="7" fill="#fff" stroke="#f9a8d4"/><text x="554" y="285" text-anchor="middle">Re-read DynamoDB → reminder</text>
+    <rect x="428" y="304" width="252" height="32" rx="7" fill="#fff" stroke="#f9a8d4"/><text x="554" y="325" text-anchor="middle">Wait until expiry → claim turn</text>
+    <rect x="428" y="344" width="252" height="32" rx="7" fill="#fce7f3" stroke="#db2777"/><text x="554" y="365" text-anchor="middle" font-weight="700">Ask and wait for a task token</text>
+    <rect x="428" y="384" width="252" height="32" rx="7" fill="#fff" stroke="#f9a8d4"/><text x="554" y="405" text-anchor="middle">No answer → flag + tell family</text>
+  </g>
+  <text x="554" y="440" text-anchor="middle" font-size="12" fill="#831843">Direct SDK integrations, no Lambda:</text>
+  <text x="554" y="458" text-anchor="middle" font-size="12" fill="#831843">DynamoDB GetItem · SendTaskSuccess ·</text>
+  <text x="554" y="476" text-anchor="middle" font-size="12" fill="#831843">StartExecution</text>
+  <line x1="370" y1="252" x2="400" y2="252" stroke="#475569" stroke-width="2" marker-end="url(#a1)"/>
+  <!-- right column -->
+  <g font-size="12">
+    <rect x="744" y="24" width="200" height="54" rx="10" fill="#fff7ed" stroke="#f97316"/>
+    <text x="844" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#7c2d12">Lambda: understand</text>
+    <text x="844" y="65" text-anchor="middle" fill="#7c2d12">message → intent + food</text>
+    <rect x="744" y="90" width="200" height="54" rx="10" fill="#ecfeff" stroke="#0891b2"/>
+    <text x="844" y="112" text-anchor="middle" font-size="14" font-weight="700" fill="#164e63">Amazon Bedrock</text>
+    <text x="844" y="131" text-anchor="middle" fill="#164e63">Nova Lite, text and images</text>
+    <line x1="844" y1="78" x2="844" y2="88" stroke="#475569" stroke-width="2" marker-end="url(#a1)"/>
+
+    <rect x="744" y="176" width="200" height="54" rx="10" fill="#fff7ed" stroke="#f97316"/>
+    <text x="844" y="198" text-anchor="middle" font-size="14" font-weight="700" fill="#7c2d12">Lambda: inventory</text>
+    <text x="844" y="217" text-anchor="middle" fill="#7c2d12">conditional writes, one question turn</text>
+    <rect x="744" y="242" width="200" height="54" rx="10" fill="#eff6ff" stroke="#2563eb"/>
+    <text x="844" y="264" text-anchor="middle" font-size="14" font-weight="700" fill="#1e3a8a">Amazon DynamoDB</text>
+    <text x="844" y="283" text-anchor="middle" fill="#1e3a8a">Tuppers + ShelfLife tables</text>
+    <line x1="844" y1="230" x2="844" y2="240" stroke="#475569" stroke-width="2" marker-end="url(#a1)"/>
+
+    <rect x="744" y="328" width="200" height="54" rx="10" fill="#fff7ed" stroke="#f97316"/>
+    <text x="844" y="350" text-anchor="middle" font-size="14" font-weight="700" fill="#7c2d12">Lambda: notify</text>
+    <text x="844" y="369" text-anchor="middle" fill="#7c2d12">text, buttons, voice note</text>
+    <rect x="744" y="394" width="200" height="72" rx="10" fill="#f0fdf4" stroke="#16a34a"/>
+    <text x="844" y="416" text-anchor="middle" font-size="14" font-weight="700" fill="#14532d">Amazon Polly</text>
+    <text x="844" y="435" text-anchor="middle" fill="#14532d">SSM Parameter Store (token)</text>
+    <text x="844" y="453" text-anchor="middle" fill="#14532d">Telegram Bot API</text>
+    <line x1="844" y1="382" x2="844" y2="392" stroke="#475569" stroke-width="2" marker-end="url(#a1)"/>
+  </g>
+  <line x1="704" y1="120" x2="740" y2="60" stroke="#475569" stroke-width="2" marker-end="url(#a1)"/>
+  <line x1="704" y1="240" x2="740" y2="210" stroke="#475569" stroke-width="2" marker-end="url(#a1)"/>
+  <line x1="704" y1="360" x2="740" y2="355" stroke="#475569" stroke-width="2" marker-end="url(#a1)"/>
+  <!-- back to user -->
+  <path d="M844,466 L844,530 L91,530 L91,308" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#a1)"/>
+  <text x="470" y="522" text-anchor="middle" font-size="13" fill="#334155">messages, buttons and voice notes back to every family member</text>
+</svg>
+</div>
+<figcaption><span>Figure 1. Services and how they connect.</span><button class="png" data-fig="fig-architecture" data-name="tupper-guardian-architecture">Download PNG</button></figcaption>
+</figure>
+
+<div class="table-wrap">
+<table>
+  <tr><th>Service</th><th>Why it is there</th></tr>
+  <tr><td>Amazon API Gateway (REST)</td><td>Public webhook for Telegram. It starts the workflow itself through a direct StartExecution integration and answers 200 at once. The execution is named <code>tg-&lt;update_id&gt;</code>, so if Telegram delivers an update twice it still runs only once, without any deduplication code. A secret path segment and throttling protect it.</td></tr>
+  <tr><td>AWS Step Functions (Standard)</td><td>The heart of the app: it waits for days at no compute cost, re-reads state after every wait, pauses on a task token until a human answers, and fans out one execution per food with a <code>Map</code> state.</td></tr>
+  <tr><td>AWS Lambda (Python 3.13, arm64)</td><td>Three small functions: <code>understand</code>, <code>inventory</code> and <code>notify</code>. Each does one job the workflow can't do natively.</td></tr>
+  <tr><td>Amazon Bedrock (Amazon Nova Lite)</td><td>Turns free text or a photo into <code>{intent, food, category}</code>, splits a shopping list, and reads printed expiry dates. Its output is validated against a closed list of categories.</td></tr>
+  <tr><td>Amazon DynamoDB (on-demand)</td><td>Source of truth. A <code>Tuppers</code> table is partitioned by fridge, so a family shares one partition. A <code>ShelfLife</code> table holds conservative refrigerator times based on USDA FoodKeeper.</td></tr>
+  <tr><td>Amazon Polly</td><td>Mexican Spanish voice (neural engine, standard as a fallback) for confirmations and alerts, sent as a Telegram voice note.</td></tr>
+  <tr><td>AWS Systems Manager Parameter Store</td><td>Holds the bot token as a SecureString. It never appears in code or in the template.</td></tr>
+</table>
+</div>
+<p>There are no servers, containers or deployment pipelines. A single script packages the template, deploys it with AWS CloudFormation, seeds the shelf-life table and registers the webhook. When nobody uses the app, nothing runs: every service is pay-per-request.</p>
+
+<h2>How one food lives and ends</h2>
+<p>Every stored food gets its own long-lived execution. This is where Step Functions earns its place over a simple scheduler. The execution waits, re-checks reality, asks a human, waits for the answer, and decides what happens next.</p>
+
+<figure id="fig-lifecycle">
+<div class="diagram">
+<svg viewBox="0 0 960 470" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif" role="img" aria-labelledby="t2">
+  <title id="t2">Lifecycle of one stored food</title>
+  <defs>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
+  </defs>
+  <rect width="960" height="470" fill="#ffffff"/>
+  <g font-size="13" fill="#0f172a" text-anchor="middle">
+    <!-- row 1 -->
+    <rect x="16" y="30" width="160" height="62" rx="10" fill="#ecfdf5" stroke="#10b981"/>
+    <text x="96" y="56" font-weight="700">Stored</text><text x="96" y="76" font-size="12">dates from ShelfLife</text>
+    <rect x="216" y="30" width="170" height="62" rx="10" fill="#f8fafc" stroke="#94a3b8"/>
+    <text x="301" y="56" font-weight="700">Wait</text><text x="301" y="76" font-size="12">until the day before</text>
+    <rect x="426" y="30" width="170" height="62" rx="10" fill="#eff6ff" stroke="#2563eb"/>
+    <text x="511" y="56" font-weight="700">Still in the fridge?</text><text x="511" y="76" font-size="12">re-read DynamoDB</text>
+    <rect x="636" y="30" width="170" height="62" rx="10" fill="#fefce8" stroke="#ca8a04"/>
+    <text x="721" y="56" font-weight="700">Reminder</text><text x="721" y="76" font-size="12">"expires tomorrow"</text>
+    <line x1="176" y1="61" x2="212" y2="61" stroke="#475569" stroke-width="2" marker-end="url(#a2)"/>
+    <line x1="386" y1="61" x2="422" y2="61" stroke="#475569" stroke-width="2" marker-end="url(#a2)"/>
+    <line x1="596" y1="61" x2="632" y2="61" stroke="#475569" stroke-width="2" marker-end="url(#a2)"/>
+    <!-- row 2 -->
+    <rect x="636" y="140" width="170" height="62" rx="10" fill="#f8fafc" stroke="#94a3b8"/>
+    <text x="721" y="166" font-weight="700">Wait</text><text x="721" y="186" font-size="12">until it expires</text>
+    <rect x="426" y="140" width="170" height="62" rx="10" fill="#eff6ff" stroke="#2563eb"/>
+    <text x="511" y="166" font-weight="700">Still in the fridge?</text><text x="511" y="186" font-size="12">re-read DynamoDB</text>
+    <rect x="216" y="140" width="170" height="62" rx="10" fill="#f5f3ff" stroke="#8b5cf6"/>
+    <text x="301" y="166" font-weight="700">Claim question turn</text><text x="301" y="186" font-size="12">one question per person</text>
+    <rect x="16" y="132" width="170" height="78" rx="10" fill="#fce7f3" stroke="#db2777" stroke-width="2"/>
+    <text x="101" y="158" font-weight="700">Ask with buttons</text><text x="101" y="177" font-size="12">execution pauses on</text><text x="101" y="194" font-size="12">a task token</text>
+    <line x1="721" y1="92" x2="721" y2="136" stroke="#475569" stroke-width="2" marker-end="url(#a2)"/>
+    <line x1="636" y1="171" x2="600" y2="171" stroke="#475569" stroke-width="2" marker-end="url(#a2)"/>
+    <line x1="426" y1="171" x2="390" y2="171" stroke="#475569" stroke-width="2" marker-end="url(#a2)"/>
+    <line x1="216" y1="171" x2="190" y2="171" stroke="#475569" stroke-width="2" marker-end="url(#a2)"/>
+    <!-- not active exits -->
+    <rect x="846" y="88" width="100" height="56" rx="10" fill="#f1f5f9" stroke="#94a3b8"/>
+    <text x="896" y="112" font-size="12" font-weight="700">Already gone</text><text x="896" y="130" font-size="12">end quietly</text>
+    <path d="M596,48 C700,10 860,20 892,84" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#a2)"/>
+    <path d="M596,190 C700,230 860,220 896,148" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#a2)"/>
+    <text x="760" y="236" font-size="11" fill="#64748b">eaten or thrown away earlier</text>
+    <!-- outcomes -->
+    <rect x="16" y="290" width="200" height="66" rx="10" fill="#ecfdf5" stroke="#10b981"/>
+    <text x="116" y="316" font-weight="700">"I ate it" / "Threw it away"</text><text x="116" y="336" font-size="12">closed; next question is woken</text>
+    <rect x="256" y="290" width="200" height="66" rx="10" fill="#fefce8" stroke="#ca8a04"/>
+    <text x="356" y="316" font-weight="700">"It's still there"</text><text x="356" y="336" font-size="12">ask again tomorrow (max 2)</text>
+    <rect x="496" y="290" width="220" height="66" rx="10" fill="#fff1f2" stroke="#e11d48"/>
+    <text x="606" y="316" font-weight="700">No answer (timeout)</text><text x="606" y="336" font-size="12">stays in the fridge, flagged</text>
+    <rect x="756" y="290" width="190" height="66" rx="10" fill="#f5f3ff" stroke="#8b5cf6"/>
+    <text x="851" y="316" font-weight="700">Family is told</text><text x="851" y="336" font-size="12">anyone can review it</text>
+    <line x1="80" y1="210" x2="100" y2="286" stroke="#475569" stroke-width="2" marker-end="url(#a2)"/>
+    <line x1="120" y1="210" x2="330" y2="286" stroke="#475569" stroke-width="2" marker-end="url(#a2)"/>
+    <line x1="160" y1="210" x2="570" y2="286" stroke="#475569" stroke-width="2" marker-end="url(#a2)"/>
+    <line x1="716" y1="323" x2="752" y2="323" stroke="#475569" stroke-width="2" marker-end="url(#a2)"/>
+    <path d="M356,290 C356,250 330,220 310,206" fill="none" stroke="#ca8a04" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#a2)"/>
+    <text x="400" y="246" font-size="11" fill="#92400e">wait a day, ask again</text>
+    <text x="480" y="410" font-size="13" fill="#334155">The third question is a last call: only "I ate it 🤢" and "I threw it away", so we always learn the ending.</text>
+    <text x="480" y="432" font-size="13" fill="#334155">Eating food a full day past its date gets a health message, not a celebration.</text>
+  </g>
+</svg>
+</div>
+<figcaption><span>Figure 2. The life of one stored food, as a Step Functions execution.</span><button class="png" data-fig="fig-lifecycle" data-name="tupper-guardian-lifecycle">Download PNG</button></figcaption>
+</figure>
+
+<h3>Human-in-the-loop without polling</h3>
+<p>The question uses <code>lambda:invoke.waitForTaskToken</code>. A Telegram button can carry only 64 bytes, so the token doesn't travel in the button. The <code>notify</code> function saves it on the food's DynamoDB item <em>before</em> sending the buttons, so a fast tap can never arrive ahead of the token it needs.</p>
+<p>When someone taps a button, Telegram calls the webhook again and a second, short execution starts. It closes the item with a conditional write (only if it is still <code>ACTIVE</code>) and calls <code>SendTaskSuccess</code> as a direct SDK integration. The paused execution then wakes up. A button, a typed "I already ate it" and the timeout can all race, and exactly one of them wins.</p>
+
+<figure id="fig-hitl">
+<div class="diagram">
+<svg viewBox="0 0 960 430" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif" role="img" aria-labelledby="t3">
+  <title id="t3">Human-in-the-loop sequence</title>
+  <defs>
+    <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
+  </defs>
+  <rect width="960" height="430" fill="#ffffff"/>
+  <g font-size="13" text-anchor="middle" fill="#0f172a">
+    <rect x="20" y="16" width="160" height="44" rx="8" fill="#fce7f3" stroke="#db2777"/><text x="100" y="35" font-weight="700">Food's execution</text><text x="100" y="52" font-size="11">(paused)</text>
+    <rect x="210" y="16" width="150" height="44" rx="8" fill="#fff7ed" stroke="#f97316"/><text x="285" y="43" font-weight="700">Lambda: notify</text>
+    <rect x="390" y="16" width="150" height="44" rx="8" fill="#eff6ff" stroke="#2563eb"/><text x="465" y="43" font-weight="700">DynamoDB</text>
+    <rect x="570" y="16" width="150" height="44" rx="8" fill="#f1f5f9" stroke="#94a3b8"/><text x="645" y="43" font-weight="700">Phone</text>
+    <rect x="750" y="16" width="190" height="44" rx="8" fill="#f5f3ff" stroke="#8b5cf6"/><text x="845" y="35" font-weight="700">Button's execution</text><text x="845" y="52" font-size="11">(via API Gateway)</text>
+  </g>
+  <g stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4 4">
+    <line x1="100" y1="60" x2="100" y2="410"/><line x1="285" y1="60" x2="285" y2="410"/>
+    <line x1="465" y1="60" x2="465" y2="410"/><line x1="645" y1="60" x2="645" y2="410"/>
+    <line x1="845" y1="60" x2="845" y2="410"/>
+  </g>
+  <g font-size="12" fill="#0f172a">
+    <line x1="100" y1="96" x2="281" y2="96" stroke="#475569" stroke-width="2" marker-end="url(#a3)"/>
+    <text x="190" y="88" text-anchor="middle">1. invoke with task token</text>
+    <line x1="285" y1="136" x2="461" y2="136" stroke="#475569" stroke-width="2" marker-end="url(#a3)"/>
+    <text x="375" y="128" text-anchor="middle">2. save token on the item</text>
+    <line x1="285" y1="176" x2="641" y2="176" stroke="#475569" stroke-width="2" marker-end="url(#a3)"/>
+    <text x="463" y="168" text-anchor="middle">3. question + buttons (+ voice note)</text>
+    <line x1="645" y1="226" x2="841" y2="226" stroke="#475569" stroke-width="2" marker-end="url(#a3)"/>
+    <text x="745" y="218" text-anchor="middle">4. tap "I ate it" → webhook</text>
+    <line x1="845" y1="276" x2="469" y2="276" stroke="#475569" stroke-width="2" marker-end="url(#a3)"/>
+    <text x="657" y="268" text-anchor="middle">5. conditional update ACTIVE → CONSUMED, read token</text>
+    <line x1="845" y1="326" x2="104" y2="326" stroke="#db2777" stroke-width="2.5" marker-end="url(#a3)"/>
+    <text x="470" y="318" text-anchor="middle" fill="#831843" font-weight="700">6. SendTaskSuccess (direct integration) → the paused execution resumes</text>
+    <text x="100" y="368" text-anchor="middle">7. free the question turn,</text>
+    <text x="100" y="385" text-anchor="middle">wake the next question</text>
+    <text x="645" y="380" text-anchor="middle" fill="#64748b">Telegram data: "e|&lt;id&gt;" (fits in 64 bytes)</text>
+  </g>
+</svg>
+</div>
+<figcaption><span>Figure 3. A button press releases a paused execution.</span><button class="png" data-fig="fig-hitl" data-name="tupper-guardian-human-in-the-loop">Download PNG</button></figcaption>
+</figure>
+
+<h3>One question at a time, and nothing disappears by silence</h3>
+<p>The first live test showed a real problem. Three photos stored within a minute expired together, three questions arrived at once, they got lost in the chat, and all three timed out.</p>
+<p>Now each person has a single <strong>question turn</strong>: a slot on their profile taken with a DynamoDB conditional write. It expires by itself, so a failed execution can never block the queue. Executions that find the turn busy wait on a second task token. Whoever answers wakes the next one, and a polling fallback covers the rest.</p>
+<p>An unanswered food is no longer deleted. It stays in the fridge flagged for review, the list shows it first, and any member of the family can resolve it.</p>
+
+<h3>Shopping lists and pantry food</h3>
+<p>A shopping list fans out. Bedrock splits it into foods and the inventory function stores them all. A <code>Map</code> state then starts one child execution per food with the Step Functions SDK integration, named <code>tg-&lt;update_id&gt;-&lt;food id&gt;</code>, so a retry can never track the same food twice. Each child joins exactly the same lifecycle as a food stored on its own.</p>
+<p>Food that needs no refrigeration waits for its printed expiry date. The bot asks for it one item at a time, and the answer can be typed or be a photo of the label.</p>
+
+<figure id="fig-list">
+<div class="diagram">
+<svg viewBox="0 0 960 330" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif" role="img" aria-labelledby="t4">
+  <title id="t4">Shopping list fan-out</title>
+  <defs>
+    <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
+  </defs>
+  <rect width="960" height="330" fill="#ffffff"/>
+  <g font-size="13" text-anchor="middle" fill="#0f172a">
+    <rect x="16" y="110" width="150" height="76" rx="10" fill="#f1f5f9" stroke="#94a3b8"/>
+    <text x="91" y="138" font-weight="700">Shopping list</text><text x="91" y="157" font-size="12">text or photo</text><text x="91" y="174" font-size="12">of the receipt</text>
+    <rect x="200" y="110" width="160" height="76" rx="10" fill="#ecfeff" stroke="#0891b2"/>
+    <text x="280" y="138" font-weight="700">Bedrock splits it</text><text x="280" y="157" font-size="12">validated, max 20 foods</text><text x="280" y="174" font-size="12">fridge vs. pantry</text>
+    <rect x="394" y="110" width="160" height="76" rx="10" fill="#fff7ed" stroke="#f97316"/>
+    <text x="474" y="138" font-weight="700">Store all</text><text x="474" y="157" font-size="12">idempotent ids,</text><text x="474" y="174" font-size="12">one confirmation</text>
+    <rect x="588" y="22" width="170" height="70" rx="10" fill="#fdf2f8" stroke="#db2777"/>
+    <text x="673" y="50" font-weight="700">Map → StartExecution</text><text x="673" y="70" font-size="12">one child per fridge food</text>
+    <rect x="588" y="206" width="170" height="70" rx="10" fill="#fefce8" stroke="#ca8a04"/>
+    <text x="673" y="234" font-weight="700">Pantry food</text><text x="673" y="254" font-size="12">"when does it expire?"</text>
+    <rect x="792" y="22" width="152" height="70" rx="10" fill="#ecfdf5" stroke="#10b981"/>
+    <text x="868" y="50" font-weight="700">Own lifecycle</text><text x="868" y="70" font-size="12">Figure 2, per food</text>
+    <rect x="792" y="206" width="152" height="70" rx="10" fill="#ecfdf5" stroke="#10b981"/>
+    <text x="868" y="228" font-weight="700">Typed date or</text><text x="868" y="246" font-weight="700">photo of label</text><text x="868" y="264" font-size="12">→ same lifecycle</text>
+    <line x1="166" y1="148" x2="196" y2="148" stroke="#475569" stroke-width="2" marker-end="url(#a4)"/>
+    <line x1="360" y1="148" x2="390" y2="148" stroke="#475569" stroke-width="2" marker-end="url(#a4)"/>
+    <line x1="554" y1="130" x2="600" y2="94" stroke="#475569" stroke-width="2" marker-end="url(#a4)"/>
+    <line x1="554" y1="166" x2="600" y2="204" stroke="#475569" stroke-width="2" marker-end="url(#a4)"/>
+    <line x1="758" y1="57" x2="788" y2="57" stroke="#475569" stroke-width="2" marker-end="url(#a4)"/>
+    <line x1="758" y1="241" x2="788" y2="241" stroke="#475569" stroke-width="2" marker-end="url(#a4)"/>
+    <text x="480" y="312" font-size="12" fill="#64748b">Days come from USDA FoodKeeper (shortest refrigerator time per category). Unknown food gets 2 days, and the bot says so.</text>
+  </g>
+</svg>
+</div>
+<figcaption><span>Figure 4. A shopping list becomes many independent executions.</span><button class="png" data-fig="fig-list" data-name="tupper-guardian-shopping-list">Download PNG</button></figcaption>
+</figure>
+
+<h2>Design decisions I'd defend</h2>
+<ul>
+  <li><strong>The model extracts, it never decides safety.</strong> Bedrock returns an intent, a food name and a category from a closed list. Anything outside that list becomes "other", and any malformed reply becomes "I didn't understand". Shelf life comes from data, not from the model.</li>
+  <li><strong>DynamoDB is the source of truth, Step Functions is the clock.</strong> After every <code>Wait</code> the execution re-reads the item with a direct <code>GetItem</code>, so food that was already eaten never triggers an alert.</li>
+  <li><strong>Every close is conditional.</strong> Moving an item out of <code>ACTIVE</code> is a conditional update, so a button, a text message and a timeout can race safely.</li>
+  <li><strong>Native integrations over glue code.</strong> API Gateway starts executions, and Step Functions reads DynamoDB, releases task tokens and starts child executions itself. Lambda is only used for language, data rules and messaging.</li>
+  <li><strong>Least privilege.</strong> Each function and the state machine get only the actions they use. The invite link uses a random single-use code, not a chat id, so a guessed id can't add a stranger to a family's fridge.</li>
+  <li><strong>Demo mode, said out loud.</strong> One parameter sets the length of a "day" (86,400 s in real use, about 20 s in the video), so a whole week can be shown in a few minutes.</li>
+</ul>
+
+<h2>What I learned</h2>
+<ul>
+  <li><strong>Real users break your happy path.</strong> Testing with real people changed the product: questions now come one at a time, unanswered food stays on the list, and the bot became a family food manager instead of a "rescued containers" counter.</li>
+  <li><strong>Task tokens are the killer feature for human-in-the-loop.</strong> A paused Standard execution costs nothing while it waits for a person, and every state transition is visible in the console. That is the part a plain scheduler can't do.</li>
+  <li><strong>JSONata makes the state machine readable.</strong> Variables (<code>Assign</code>) and JSONata expressions removed most of the data-shaping Lambdas I expected to write. <code>TestState</code> let me validate single states against AWS before deploying.</li>
+  <li><strong>Small things matter for older users:</strong> a voice note, buttons instead of typing, and a message that respects the habit of not wasting food while still putting health first.</li>
+</ul>
+
+<h2>What's next</h2>
+<ul>
+  <li>WhatsApp as the channel, since it is what most families in Mexico already use.</li>
+  <li>Voice messages as input with Amazon Transcribe.</li>
+  <li>Opened vs. unopened packages, to shorten the date once a package is opened.</li>
+</ul>
+
+<p><em>Shelf-life values are conservative lower bounds of general USDA FoodKeeper guidance for a refrigerator at 4 °C / 40 °F or below. They are a reminder aid, not food-safety advice.</em></p>
+
+<!-- ================================================================ -->
+<section class="appendix">
+<h2 style="border-top:none;margin-top:0">Appendix: cover photo options (not part of the article)</h2>
+<p>Five ideas to shoot at home with a phone, no AI-generated imagery. The sketches only show the composition. Before shooting, check the cover size Builder Center asks for when you upload. Shoot landscape and leave empty space on the side marked for the title, so the image survives cropping.</p>
+<p>General tips: natural light from a window, phone on a stack of books or a tripod, the Telegram chat in light mode with a real alert on screen, and no faces or personal names visible unless you want them.</p>
+
+<div class="covers">
+
+  <div class="cover">
+    <svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif" font-size="9">
+      <rect width="320" height="180" fill="#1f2937"/>
+      <rect x="170" y="10" width="140" height="160" rx="6" fill="#fef9c3" opacity="0.85"/>
+      <line x1="170" y1="70" x2="310" y2="70" stroke="#d6d3d1"/><line x1="170" y1="120" x2="310" y2="120" stroke="#d6d3d1"/>
+      <rect x="196" y="88" width="56" height="30" rx="5" fill="#e5e7eb" stroke="#9ca3af"/>
+      <rect x="200" y="84" width="30" height="8" fill="#fde68a"/><text x="215" y="91" text-anchor="middle" font-size="7">¿?</text>
+      <rect x="120" y="70" width="40" height="72" rx="6" fill="#111827" stroke="#9ca3af"/>
+      <rect x="124" y="78" width="32" height="54" fill="#e0f2fe"/>
+      <text x="20" y="80" fill="#f9fafb" font-size="13" font-weight="700">TITLE SPACE</text>
+      <text x="20" y="96" fill="#d1d5db">dark side of the kitchen</text>
+    </svg>
+    <h3>A. The mystery container <span class="tag">story</span></h3>
+    <ul>
+      <li>Open fridge at night, lit only by the fridge light.</li>
+      <li>An old container with masking tape that reads "¿?", half pulled out.</li>
+      <li>A hand in the foreground holds a phone showing the bot's question with the three buttons.</li>
+      <li>Leave the dark left side for the title.</li>
+    </ul>
+  </div>
+
+  <div class="cover">
+    <svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif" font-size="9">
+      <rect width="320" height="180" fill="#e7e2d6"/>
+      <rect x="20" y="20" width="70" height="48" rx="8" fill="#fff" stroke="#a8a29e"/><rect x="28" y="14" width="40" height="9" fill="#fde68a"/>
+      <rect x="100" y="30" width="60" height="44" rx="8" fill="#fff" stroke="#a8a29e"/><rect x="108" y="24" width="34" height="9" fill="#fde68a"/>
+      <circle cx="60" cy="125" r="26" fill="#d6d3d1" stroke="#78716c"/><text x="60" y="128" text-anchor="middle">can</text>
+      <rect x="110" y="95" width="46" height="80" rx="6" fill="#111827"/><rect x="114" y="102" width="38" height="64" fill="#e0f2fe"/>
+      <path d="M170,96 l40,0 l0,80 l-40,0 z" fill="#fff" stroke="#a8a29e"/><text x="190" y="140" text-anchor="middle" font-size="7">receipt</text>
+      <text x="236" y="70" font-size="12" font-weight="700" fill="#44403c">TITLE</text><text x="236" y="84" fill="#57534e">SPACE</text>
+    </svg>
+    <h3>B. Flat lay after the supermarket <span class="tag">features</span></h3>
+    <ul>
+      <li>Shot from above on a wooden table or counter.</li>
+      <li>Two or three containers with handwritten tape labels, a can, a grocery receipt, and the phone with the shopping-list confirmation on screen.</li>
+      <li>Leave the right third empty (a plain tablecloth works) for the title.</li>
+    </ul>
+  </div>
+
+  <div class="cover">
+    <svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif" font-size="9">
+      <rect width="320" height="180" fill="#f1f5f9"/>
+      <rect x="0" y="0" width="320" height="180" fill="#e2e8f0"/>
+      <rect x="40" y="40" width="50" height="90" rx="7" fill="#111827" transform="rotate(-8 65 85)"/>
+      <rect x="45" y="48" width="40" height="72" fill="#e0f2fe" transform="rotate(-8 65 85)"/>
+      <path d="M30,160 C45,130 70,130 80,150" fill="#d6b49a"/>
+      <rect x="150" y="40" width="50" height="90" rx="7" fill="#111827" transform="rotate(8 175 85)"/>
+      <rect x="155" y="48" width="40" height="72" fill="#e0f2fe" transform="rotate(8 175 85)"/>
+      <path d="M150,160 C165,130 190,130 205,150" fill="#a87b5a"/>
+      <text x="240" y="80" font-size="12" font-weight="700" fill="#334155">TITLE</text><text x="240" y="94" fill="#475569">SPACE</text>
+    </svg>
+    <h3>C. Two generations, one fridge <span class="tag">impact</span></h3>
+    <ul>
+      <li>Hands only: an older hand and a younger hand, each holding a phone with the same alert ("Mamá has expired soup to review").</li>
+      <li>Fridge door blurred in the background.</li>
+      <li>Tells the shared-fridge story without showing faces.</li>
+    </ul>
+  </div>
+
+  <div class="cover">
+    <svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif" font-size="8">
+      <rect width="320" height="180" fill="#f8fafc"/>
+      <rect x="10" y="10" width="300" height="160" rx="8" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <g text-anchor="middle">
+        <rect x="24" y="30" width="54" height="34" fill="#fde68a"/><text x="51" y="50">Stored</text>
+        <rect x="96" y="30" width="54" height="34" fill="#bbf7d0"/><text x="123" y="46">Wait</text><text x="123" y="56">⏳</text>
+        <rect x="168" y="30" width="54" height="34" fill="#bfdbfe"/><text x="195" y="50">Reminder</text>
+        <rect x="168" y="90" width="54" height="34" fill="#fbcfe8"/><text x="195" y="106">Ask?</text><text x="195" y="116">🙋</text>
+        <rect x="96" y="90" width="54" height="34" fill="#ddd6fe"/><text x="123" y="110">Eaten</text>
+        <rect x="24" y="90" width="54" height="34" fill="#fecaca"/><text x="51" y="110">Review</text>
+      </g>
+      <g stroke="#111827" stroke-width="1.5" fill="none">
+        <path d="M78,47 L94,47"/><path d="M150,47 L166,47"/><path d="M195,64 L195,88"/><path d="M168,107 L152,107"/><path d="M190,124 C150,150 80,150 55,126"/>
+      </g>
+      <rect x="240" y="40" width="44" height="80" rx="6" fill="#111827"/><rect x="244" y="47" width="36" height="64" fill="#e0f2fe"/>
+      <text x="160" y="160" text-anchor="middle" fill="#475569">title on a sticky note or above the door</text>
+    </svg>
+    <h3>D. The fridge door is the state machine <span class="tag">recommended</span></h3>
+    <ul>
+      <li>Sticky notes on the fridge door laid out like the workflow: Stored → Wait → Reminder → Ask? → Eaten / Review, with marker arrows.</li>
+      <li>A phone held next to it, or stuck with a magnet, showing the question with buttons.</li>
+      <li>Speaks straight to a Step Functions audience and is easy to recreate.</li>
+    </ul>
+  </div>
+
+  <div class="cover">
+    <svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif" font-size="9">
+      <rect width="320" height="180" fill="#292524"/>
+      <circle cx="110" cy="90" r="80" fill="#a8a29e"/><circle cx="110" cy="90" r="66" fill="#d6d3d1"/>
+      <text x="110" y="86" text-anchor="middle" font-size="11" font-weight="700" fill="#1c1917">CAD 15/03/27</text>
+      <rect x="62" y="64" width="96" height="40" fill="none" stroke="#fbbf24" stroke-width="2" stroke-dasharray="6 4"/>
+      <text x="250" y="86" fill="#f5f5f4" font-size="12" font-weight="700">TITLE</text><text x="250" y="100" fill="#d6d3d1">SPACE</text>
+    </svg>
+    <h3>E. The printed date <span class="tag">detail</span></h3>
+    <ul>
+      <li>Close-up of a can lid or a package showing its printed expiry date, with a phone camera framing it.</li>
+      <li>Shows the newest feature (pantry food by photo).</li>
+      <li>Works best as a second image inside the article rather than as the cover.</li>
+    </ul>
+  </div>
+
+</div>
+</section>
+
+</main>
+
+<script>
+  // Export a figure's SVG as a PNG at 2x, for uploading to Builder Center.
+  document.querySelectorAll("button.png").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var svg = document.querySelector("#" + button.dataset.fig + " svg");
+      var box = svg.viewBox.baseVal;
+      var clone = svg.cloneNode(true);
+      clone.setAttribute("width", box.width);
+      clone.setAttribute("height", box.height);
+      var data = new XMLSerializer().serializeToString(clone);
+      var image = new Image();
+      image.onload = function () {
+        var scale = 2;
+        var canvas = document.createElement("canvas");
+        canvas.width = box.width * scale;
+        canvas.height = box.height * scale;
+        var context = canvas.getContext("2d");
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(function (blob) {
+          var link = document.createElement("a");
+          link.href = URL.createObjectURL(blob);
+          link.download = button.dataset.name + ".png";
+          link.click();
+          setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
+        }, "image/png");
+      };
+      image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(data);
+    });
+  });
+</script>
+</body>
+</html>
