@@ -223,3 +223,7 @@ def test_shopping_list_over_the_cap_says_how_many_were_left_out(bedrock):
     result = understand.handler(message(text="mi lista"))
 
     assert result["dropped"] == 5
+
+
+def test_prompt_leaves_non_food_products_out_of_the_list():
+    assert "Leave out non-food products" in understand.SYSTEM_PROMPT

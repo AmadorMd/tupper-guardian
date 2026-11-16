@@ -302,14 +302,15 @@ def test_shopping_list_confirmation_names_every_food_and_the_source():
     assert "• leche: 7 días" in message.text
     assert "• chayote: 2 días (no lo tengo en mi tabla, usé un tiempo corto)" in message.text
     assert "FoodKeeper" in message.text
-    assert "No anoté arroz, atún" in message.text
+    assert "No necesitan refrigeración, consulta su fecha de caducidad: arroz, atún" in message.text
     assert message.speech and "2 alimentos" in message.speech
 
 
 def test_shopping_list_with_nothing_for_the_fridge():
     text = messages.build("stored_list", {"items": [], "skipped": ["arroz"]}).text
 
-    assert "No anoté arroz" in text and "Anoté" not in text.replace("No anoté", "")
+    assert "No necesita refrigeración, consulta su fecha de caducidad: arroz" in text
+    assert "Anoté" not in text
 
 
 def test_shopping_list_over_the_cap_asks_for_the_rest():

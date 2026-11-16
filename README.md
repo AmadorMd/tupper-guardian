@@ -54,13 +54,14 @@ flowchart LR
    is split into foods, up to 20 per message. Each one gets the shortest
    refrigerator time that USDA FoodKeeper recommends for its category and its
    own execution, started by a `Map` state, so it is reminded and asked about
-   like any other item. Food that does not go in the fridge (rice, cans,
-   bread) is listed as not stored.
+   like any other item. Food that does not need the fridge (rice, cans,
+   bread) is listed as not needing refrigeration, with a reminder to check its
+   expiry date.
 
 | You send | The bot does |
 |---|---|
 | "Guardé caldo de pollo en el refri" or a photo | Registers it and schedules the alerts |
-| "Lista del súper: leche, huevos, jitomate, arroz" or a photo of the receipt | Registers every fridge food with its own dates and says what it skipped |
+| "Lista del súper: leche, huevos, jitomate, arroz" or a photo of the receipt | Registers every fridge food with its own dates and lists the food that needs no refrigeration |
 | "Ya me comí el caldo" / "Ya tiré el caldo" | Removes it from the fridge |
 | "¿Qué tengo en el refri?" or `/refri` | Lists what is in the fridge, expired items first |
 | `/familiar` | Returns a single-use link to share the fridge with a relative |
@@ -173,5 +174,7 @@ After deploying in demo mode (a "day" lasts 20 seconds):
 
 ## Roadmap
 
+- **Pantry food with its printed date.** Ask for the expiry date of food that
+  needs no refrigeration, typed or as a photo of the label, and track it too.
 - **Opened vs. unopened.** A shopping list assumes unopened packages; telling
   the bot when a package is opened would shorten its date.

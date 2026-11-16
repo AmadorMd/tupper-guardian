@@ -86,7 +86,10 @@ def _stored_list(data):
         )
         parts.append("Te aviso uno por uno antes de que venzan.")
     if skipped:
-        parts.append(f"No anoté {', '.join(skipped)} porque no va en el refri.")
+        needs = "No necesita" if len(skipped) == 1 else "No necesitan"
+        parts.append(
+            f"🥫 {needs} refrigeración, consulta su fecha de caducidad: {', '.join(skipped)}."
+        )
     dropped = int(data.get("dropped") or 0)
     if dropped:
         more = "1 alimento más" if dropped == 1 else f"{dropped} alimentos más"
