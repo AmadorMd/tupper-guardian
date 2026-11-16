@@ -169,7 +169,7 @@ After deploying in demo mode (a "day" lasts 20 seconds):
 | `src/guardian/shelf_life.json` | Shelf-life data and the closed category list |
 | `scripts/` | Deploy, token storage, seeding, webhook administration |
 | `tests/` | Unit tests (see above) |
-| `odd/tasks/tupper-guardian.md` | Specs, task status and decision log |
+| `docs/` | Architecture guide, Builder Center write-up and demo video script |
 
 ## Notes and limits
 
