@@ -22,7 +22,7 @@ import os
 import secrets
 import time
 import unicodedata
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
@@ -38,8 +38,13 @@ MAX_TUPPER_ID_LENGTH = 32
 SLOT_MARGIN_SECONDS = 60
 MAX_TURN_POLL_SECONDS = 900
 MIN_TURN_POLL_SECONDS = 5
+PANTRY = "pantry"
+AWAITING_DATE = "AWAITING_DATE"
+# A Step Functions standard execution lasts at most a year.
+MAX_TRACKED_DAYS = 360
+MEXICO_CITY = timezone(timedelta(hours=-6))  # no daylight saving time since 2022
 
-BUTTON_ACTIONS = {"e": "eaten", "t": "tossed", "s": "snooze", "r": "review"}
+BUTTON_ACTIONS = {"e": "eaten", "t": "tossed", "s": "snooze", "r": "review", "x": "skip_date"}
 CLOSING_STATUS = {"eaten": "CONSUMED", "tossed": "DISCARDED"}
 
 _resource = None
@@ -124,13 +129,13 @@ def _is_overdue(item):
     return _now() >= int(item["expires_epoch"]) + _seconds_per_day()
 
 
-def _active_tuppers(fridge_key):
+def _active_tuppers(fridge_key, status="ACTIVE"):
     items, start_key = [], None
     while True:
         query = {
             "KeyConditionExpression": Key("chat_id").eq(fridge_key)
             & Key("item_id").begins_with(TUPPER_PREFIX),
-            "FilterExpression": Attr("status").eq("ACTIVE"),
+            "FilterExpression": Attr("status").eq(status),
             "ConsistentRead": True,
         }
         if start_key:
@@ -233,43 +238,22 @@ def _pick(food, items):
     return None
 
 
-def _store_one(chat_key, fridge_key, first_name, food, category, tupper_id=None):
-    """Put one food in the fridge; return what its tracking workflow needs.
+def _days_until(printed):
+    """Whole days from today (Mexico City) to an ISO date, or None if it is not one."""
+    try:
+        target = date.fromisoformat(str(printed or ""))
+    except ValueError:
+        return None
+    return (target - datetime.fromtimestamp(_now(), MEXICO_CITY).date()).days
 
-    With a given `tupper_id` the write happens only once: a retry finds the
-    item already there, keeps it as it is (even if it was resolved since),
-    and returns the same dates as the first attempt."""
-    category = category or "other"
-    days, default_used = _shelf_days(category)
+
+def _tracking(fridge_key, tupper_id, food, days, default_used, expires):
+    """What the workflow needs to remind and ask about one food."""
     per_day = _seconds_per_day()
-    now = _now()
-    expires = now + days * per_day
-    write = {}
-    if tupper_id:
-        write["ConditionExpression"] = "attribute_not_exists(item_id)"
-    tupper_id = tupper_id or secrets.token_hex(6)
-    item_id = TUPPER_PREFIX + tupper_id
-    item = {
-        "chat_id": fridge_key,
-        "item_id": item_id,
-        "food": food,
-        "category": category,
-        "status": "ACTIVE",
-        "stored_by": chat_key,
-        "stored_by_name": first_name or "",
-        "stored_at": _iso(now),
-        "expires_at": _iso(expires),
-        "expires_epoch": int(expires),
-    }
-    if _conditional(lambda: _tuppers().put_item(Item=item, **write)) is None:
-        existing = _tuppers().get_item(
-            Key={"chat_id": fridge_key, "item_id": item_id}, ConsistentRead=True
-        )["Item"]
-        expires = int(existing["expires_epoch"])
     return {
         "fridge_key": fridge_key,
         "tupper_id": tupper_id,
-        "item_id": item_id,
+        "item_id": TUPPER_PREFIX + tupper_id,
         "food": food,
         "days": days,
         "default_used": default_used,
@@ -282,40 +266,207 @@ def _store_one(chat_key, fridge_key, first_name, food, category, tupper_id=None)
     }
 
 
-def store(event):
-    chat_key = str(event["chat_id"])
-    result = _store_one(
-        chat_key, _fridge_key(chat_key), event.get("first_name"), event["food"], event.get("category")
-    )
-    _remember_name(chat_key, event.get("first_name"))
+def _store_one(
+    chat_key, fridge_key, first_name, food, category, tupper_id=None, days=None, order=0
+):
+    """Put one food in the fridge; return what its tracking workflow needs.
+
+    `days` overrides the shelf-life table (a printed date). Pantry food with no
+    date is kept waiting for one instead (status AWAITING_DATE).
+
+    With a given `tupper_id` the write happens only once: a retry finds the
+    item already there, keeps it as it is (even if it was resolved since),
+    and returns the same dates as the first attempt."""
+    category = category or "other"
+    awaiting = category == PANTRY and days is None
+    default_used = False
+    if days is None:
+        days, default_used = (0, False) if awaiting else _shelf_days(category)
+    now = _now()
+    expires = now + days * _seconds_per_day()
+    write = {}
+    if tupper_id:
+        write["ConditionExpression"] = "attribute_not_exists(item_id)"
+    tupper_id = tupper_id or secrets.token_hex(6)
+    item_id = TUPPER_PREFIX + tupper_id
+    item = {
+        "chat_id": fridge_key,
+        "item_id": item_id,
+        "food": food,
+        "category": category,
+        "status": AWAITING_DATE if awaiting else "ACTIVE",
+        "stored_by": chat_key,
+        "stored_by_name": first_name or "",
+        "stored_at": _iso(now),
+        # Waiting foods are asked for their date in this order.
+        "queued": f"{_iso(now)}#{order:03d}",
+        "expires_at": _iso(expires),
+        "expires_epoch": int(expires),
+    }
+    if _conditional(lambda: _tuppers().put_item(Item=item, **write)) is None:
+        existing = _tuppers().get_item(
+            Key={"chat_id": fridge_key, "item_id": item_id}, ConsistentRead=True
+        )["Item"]
+        expires = int(existing["expires_epoch"])
+    result = _tracking(fridge_key, tupper_id, food, days, default_used, expires)
+    if awaiting:
+        result["awaiting_date"] = True
     return result
 
 
+def _date_question(item):
+    if not item:
+        return {}
+    return {"food": item["food"], "tupper_id": item["item_id"][len(TUPPER_PREFIX):]}
+
+
+def _ask_next_date(chat_key, fridge_key, first=None):
+    """Point the person's profile at the next food waiting for its date
+    (`first`, or the oldest one they stored) and return it as a question."""
+    if first is None:
+        waiting = [
+            item
+            for item in _active_tuppers(fridge_key, AWAITING_DATE)
+            if _asker(item, fridge_key) == chat_key
+        ]
+        first = min(waiting, key=lambda item: item.get("queued", ""), default=None)
+    key = {"chat_id": chat_key, "item_id": PROFILE_KEY}
+    if first:
+        _tuppers().update_item(
+            Key=key,
+            UpdateExpression="SET awaiting_date = :item",
+            ExpressionAttributeValues={":item": first["item_id"]},
+        )
+    else:
+        _tuppers().update_item(Key=key, UpdateExpression="REMOVE awaiting_date")
+    return _date_question(first)
+
+
+def _printed_days(printed):
+    """Days to a printed date when it can be tracked, else None."""
+    days = _days_until(printed)
+    return days if days is not None and 0 < days <= MAX_TRACKED_DAYS else None
+
+
+def store(event):
+    chat_key = str(event["chat_id"])
+    fridge_key = _fridge_key(chat_key)
+    result = _store_one(
+        chat_key,
+        fridge_key,
+        event.get("first_name"),
+        event["food"],
+        event.get("category"),
+        days=_printed_days(event.get("date")),
+    )
+    _remember_name(chat_key, event.get("first_name"))
+    if result.get("awaiting_date"):
+        result["ask_date"] = _ask_next_date(
+            chat_key, fridge_key, {"item_id": result["item_id"], "food": result["food"]}
+        )
+    return result
+
+
+def _list_id(request_id, slot):
+    # Same request and position, same id: a retried write is a no-op.
+    return hashlib.sha256(f"{request_id}#{slot}".encode()).hexdigest()[:12] if request_id else None
+
+
 def store_list(event):
-    """Store every food of a shopping list; each one is tracked on its own."""
+    """Store every food of a shopping list; each one is tracked on its own.
+    Pantry food waits for its date, asked one food at a time."""
     chat_key = str(event["chat_id"])
     fridge_key = _fridge_key(chat_key)
     first_name = event.get("first_name")
     request_id = str(event.get("request_id") or "")
     items = [
         _store_one(
-            chat_key,
-            fridge_key,
-            first_name,
-            entry["food"],
-            entry.get("category"),
-            # Same request and position, same id: a retried write is a no-op.
-            hashlib.sha256(f"{request_id}#{index}".encode()).hexdigest()[:12]
-            if request_id
-            else None,
+            chat_key, fridge_key, first_name, entry["food"], entry.get("category"),
+            _list_id(request_id, index),
         )
         for index, entry in enumerate(event.get("items") or [])
+    ]
+    pantry = [
+        _store_one(
+            chat_key, fridge_key, first_name, food, PANTRY, _list_id(request_id, f"p{index}"),
+            order=index,
+        )
+        for index, food in enumerate(event.get("skipped") or [])
     ]
     _remember_name(chat_key, first_name)
     return {
         "items": items,
         "skipped": event.get("skipped") or [],
         "dropped": int(event.get("dropped") or 0),
+        "ask_date": _ask_next_date(chat_key, fridge_key, pantry[0]) if pantry else {},
+    }
+
+
+def set_date(event):
+    """Give the food the person was asked about its printed expiry date."""
+    chat_key = str(event["chat_id"])
+    fridge_key = _fridge_key(chat_key)
+    item_id = _profile(chat_key).get("awaiting_date")
+    item = item_id and _tuppers().get_item(
+        Key={"chat_id": fridge_key, "item_id": item_id}, ConsistentRead=True
+    ).get("Item")
+    if not item or item.get("status") != AWAITING_DATE:
+        if item_id:
+            _ask_next_date(chat_key, fridge_key)
+        return {"outcome": "not_waiting"}
+    days = _days_until(event.get("date"))
+    if days is None:
+        return {"outcome": "not_waiting"}
+    if days <= 0:
+        return {"outcome": "past", "food": item["food"]}
+    expires = _now() + days * _seconds_per_day()
+    if not _conditional(
+        lambda: _tuppers().update_item(
+            Key={"chat_id": fridge_key, "item_id": item_id},
+            UpdateExpression="SET #s = :active, expires_at = :at, expires_epoch = :epoch",
+            ConditionExpression="#s = :waiting",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={
+                ":active": "ACTIVE",
+                ":waiting": AWAITING_DATE,
+                ":at": _iso(expires),
+                ":epoch": int(expires),
+            },
+        )
+    ):
+        return {"outcome": "not_waiting"}
+    tracked = days <= MAX_TRACKED_DAYS
+    result = {
+        "outcome": "dated",
+        "tracked": tracked,
+        "food": item["food"],
+        "date": event["date"],
+        "next": _ask_next_date(chat_key, fridge_key),
+    }
+    if tracked:
+        result["t"] = _tracking(
+            fridge_key, item_id[len(TUPPER_PREFIX):], item["food"], days, False, expires
+        )
+    return result
+
+
+def _skip_date(fridge_key, chat_key, item_id):
+    response = _conditional(
+        lambda: _tuppers().update_item(
+            Key={"chat_id": fridge_key, "item_id": item_id},
+            UpdateExpression="SET #s = :skipped",
+            ConditionExpression="#s = :waiting",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={":skipped": "SKIPPED", ":waiting": AWAITING_DATE},
+            ReturnValues="ALL_OLD",
+        )
+    )
+    if not response:
+        return {"action": "already"}
+    return {
+        "action": "skip_date",
+        "food": response["Attributes"]["food"],
+        "next": _ask_next_date(chat_key, fridge_key),
     }
 
 
@@ -353,6 +504,7 @@ def list_active(event):
                 "food": item["food"],
                 "days_left": math.ceil((int(item["expires_epoch"]) - now) / per_day),
                 "needs_review": bool(item.get("needs_review")),
+                "pantry": item.get("category") == PANTRY,
                 "stored_by_name": ""
                 if _asker(item, fridge_key) == chat_key
                 else item.get("stored_by_name") or "",
@@ -376,6 +528,8 @@ def resolve(event):
         review = _review_question(fridge_key, pending)
         return {"action": "review", "review_id": review.get("item_id", ""), "review": review}
     item_id = TUPPER_PREFIX + tupper_id
+    if action == "skip_date":
+        return _skip_date(fridge_key, str(event["chat_id"]), item_id)
     if action == "snooze":
         # Only an open question can be postponed. An old button on an item that
         # was left for review must not promise a question nobody will ask.
@@ -539,6 +693,7 @@ def link(event):
 _ACTIONS = {
     "store": store,
     "store_list": store_list,
+    "set_date": set_date,
     "consume": consume,
     "list": list_active,
     "resolve": resolve,

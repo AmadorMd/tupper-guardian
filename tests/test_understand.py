@@ -227,3 +227,43 @@ def test_shopping_list_over_the_cap_says_how_many_were_left_out(bedrock):
 
 def test_prompt_leaves_non_food_products_out_of_the_list():
     assert "Leave out non-food products" in understand.SYSTEM_PROMPT
+
+
+def test_pantry_food_can_be_stored_on_its_own(bedrock):
+    bedrock({"intent": "store", "food": "atún en lata", "category": "pantry"})
+
+    result = understand.handler(message(text="Guardé una lata de atún"))
+
+    assert (result["intent"], result["category"]) == ("store", "pantry")
+    assert "date" not in result
+
+
+def test_store_keeps_a_printed_date_only_when_it_is_valid(bedrock):
+    bedrock({"intent": "store", "food": "atún", "category": "pantry", "date": "2027-03-15"})
+    assert understand.handler(message(text="atún, caduca 15/03/2027"))["date"] == "2027-03-15"
+
+    bedrock({"intent": "store", "food": "atún", "category": "pantry", "date": "2027-02-30"})
+    assert "date" not in understand.handler(message(text="atún"))
+
+
+@pytest.mark.parametrize("date", ["2027-02-30", "15/03/2027", "", None, 20270315])
+def test_expiry_date_without_a_valid_date_is_unknown(bedrock, date):
+    bedrock({"intent": "expiry_date", "date": date})
+
+    assert understand.handler(message(text="el 15"))["intent"] == "unknown"
+
+
+def test_photo_of_a_printed_date_becomes_an_expiry_date(bedrock, monkeypatch):
+    fake = bedrock({"intent": "expiry_date", "date": "2027-01-31"})
+    monkeypatch.setattr(understand.telegram, "download_file", lambda fid: b"JPEG")
+
+    result = understand.handler(message(photo=[{"file_id": "p", "width": 800, "height": 600}]))
+
+    assert (result["intent"], result["date"]) == ("expiry_date", "2027-01-31")
+    # The model needs today's date to read "03/27" or "marzo".
+    assert any("Today is" in block["text"] for block in fake.calls[0]["system"])
+
+
+def test_prompt_explains_expiry_dates():
+    prompt = understand.SYSTEM_PROMPT
+    assert "expiry_date" in prompt and "day/month/year" in prompt

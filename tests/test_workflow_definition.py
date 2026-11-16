@@ -161,3 +161,33 @@ def test_shopping_list_storage_is_keyed_by_the_execution_so_retries_are_safe():
     payload = STATES["StoreList"]["Arguments"]["Payload"]
     assert payload["request_id"] == "{% $states.context.Execution.Name %}"
     assert payload["dropped"] == "{% $ctx.dropped %}"
+
+
+def test_an_expiry_date_registers_the_waiting_food_and_tracks_it():
+    assert {"Condition": "{% $ctx.intent = 'expiry_date' %}", "Next": "SetDate"} in STATES[
+        "ByIntent"
+    ]["Choices"]
+    payload = STATES["SetDate"]["Arguments"]["Payload"]
+    assert payload["action"] == "set_date" and payload["date"] == "{% $ctx.date %}"
+    assert STATES["SetDate"]["Next"] == "ConfirmDate"
+    assert STATES["ConfirmDate"]["Arguments"]["Payload"]["kind"] == "dated"
+    assert STATES["ConfirmDate"]["Next"] == "IsDateTracked"
+    assert STATES["IsDateTracked"]["Choices"] == [
+        {"Condition": "{% $r.tracked = true %}", "Next": "HasReminder"}
+    ]
+    assert set(STATES["SetDate"]["Assign"]) >= {"r", "t", "asks"}
+
+
+def test_store_payload_carries_the_printed_date():
+    # Most messages carry no date: send "" rather than an undefined field.
+    assert STATES["Store"]["Arguments"]["Payload"]["date"] == (
+        "{% $exists($ctx.date) ? $ctx.date : '' %}"
+    )
+
+
+def test_food_waiting_for_its_date_is_not_tracked_yet():
+    assert STATES["ConfirmStored"]["Next"] == "IsWaitingForDate"
+    assert STATES["IsWaitingForDate"]["Choices"] == [
+        {"Condition": "{% $t.awaiting_date = true %}", "Next": "Done"}
+    ]
+    assert STATES["IsWaitingForDate"]["Default"] == "HasReminder"

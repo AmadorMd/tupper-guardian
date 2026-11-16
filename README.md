@@ -57,6 +57,13 @@ flowchart LR
    like any other item. Food that does not need the fridge (rice, cans,
    bread) is listed as not needing refrigeration, with a reminder to check its
    expiry date.
+10. **Pantry food with its printed date.** Food that needs no refrigeration,
+    from a list or on its own, waits for its expiry date. The bot asks for it
+    one food at a time, with a "No registrar" button; the answer can be typed
+    (day/month/year) or be a photo of the printed date, read by Bedrock. Once
+    dated, the food is reminded and asked about like fridge food. Dates more
+    than 360 days away are listed in `/refri` without alerts, because an
+    execution lasts at most a year.
 
 | You send | The bot does |
 |---|---|
@@ -64,6 +71,8 @@ flowchart LR
 | "Lista del súper: leche, huevos, jitomate, arroz" or a photo of the receipt | Registers every fridge food with its own dates and lists the food that needs no refrigeration |
 | "Ya me comí el caldo" / "Ya tiré el caldo" | Removes it from the fridge |
 | "¿Qué tengo en el refri?" or `/refri` | Lists what is in the fridge, expired items first |
+| "Compré una lata de atún" | Asks for its expiry date |
+| "15/03/2027" or a photo of the printed date | Registers the date of the food it asked about and tracks it |
 | `/familiar` | Returns a single-use link to share the fridge with a relative |
 
 The full architecture guide, with diagrams of the item lifecycle and the
@@ -174,7 +183,5 @@ After deploying in demo mode (a "day" lasts 20 seconds):
 
 ## Roadmap
 
-- **Pantry food with its printed date.** Ask for the expiry date of food that
-  needs no refrigeration, typed or as a photo of the label, and track it too.
 - **Opened vs. unopened.** A shopping list assumes unopened packages; telling
   the bot when a package is opened would shorten its date.

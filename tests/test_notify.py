@@ -320,3 +320,66 @@ def test_shopping_list_over_the_cap_asks_for_the_rest():
     ).text
 
     assert "5 alimentos más" in text and "otro mensaje" in text
+
+
+DATE_QUESTION = {"food": "atún", "tupper_id": "abc123"}
+
+
+def test_pantry_food_is_stored_with_a_date_question_and_a_skip_button():
+    message = messages.build(
+        "stored", {"food": "atún", "awaiting_date": True, "ask_date": DATE_QUESTION}
+    )
+
+    assert "atún no necesita refrigeración" in message.text
+    assert "¿Cuándo caduca tu atún?" in message.text and "foto" in message.text
+    assert message.buttons == [[{"text": "⏭️ No registrar", "callback_data": "x|abc123"}]]
+
+
+def test_shopping_list_asks_for_the_first_pantry_date():
+    message = messages.build(
+        "stored_list", {"items": [], "skipped": ["atún"], "ask_date": DATE_QUESTION}
+    )
+
+    assert "¿Cuándo caduca tu atún?" in message.text
+    assert message.buttons[0][0]["callback_data"] == "x|abc123"
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        (
+            {"outcome": "dated", "tracked": True, "food": "atún", "date": "2027-03-15", "next": {}},
+            "Anoté atún con caducidad 15/03/2027",
+        ),
+        (
+            {"outcome": "dated", "tracked": False, "food": "miel", "date": "2028-01-01", "next": {}},
+            "no te mando avisos",
+        ),
+        ({"outcome": "past", "food": "atún"}, "ya pasó"),
+        ({"outcome": "not_waiting"}, "No estoy esperando ninguna fecha"),
+    ],
+)
+def test_date_answers(data, expected):
+    assert expected in messages.build("dated", data).text
+
+
+def test_date_answer_asks_the_next_food():
+    message = messages.build(
+        "dated",
+        {"outcome": "dated", "tracked": True, "food": "arroz", "date": "2027-03-15", "next": DATE_QUESTION},
+    )
+
+    assert "¿Cuándo caduca tu atún?" in message.text
+    assert message.buttons[0][0]["callback_data"] == "x|abc123"
+
+
+def test_skip_reply_confirms_and_asks_the_next_food():
+    message = messages.build("resolved", {"action": "skip_date", "food": "arroz", "next": DATE_QUESTION})
+
+    assert "No registré arroz" in message.text and "¿Cuándo caduca tu atún?" in message.text
+
+
+def test_list_marks_pantry_food():
+    text = messages.build("list", {"items": [{"food": "atún", "days_left": 30, "pantry": True}]}).text
+
+    assert "🥫 atún: vence en 30 días" in text

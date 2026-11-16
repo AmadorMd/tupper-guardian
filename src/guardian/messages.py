@@ -13,6 +13,7 @@ BUTTON_TOSSED = "t"
 BUTTON_SNOOZE = "s"
 
 BUTTON_REVIEW = "r"
+BUTTON_SKIP_DATE = "x"
 
 HELP_TEXT = (
     "Soy el Guardián de Tuppers. 🧊 Llevo la cuenta de lo que hay en el refri de tu "
@@ -20,6 +21,8 @@ HELP_TEXT = (
     "• Cuéntame qué guardaste: «Guardé caldo de pollo en el refri».\n"
     "• O mándame una foto del alimento.\n"
     "• ¿Fuiste al súper? Mándame la lista o una foto del ticket y anoto todo.\n"
+    "• Lo que no va al refri (latas, arroz): dime su fecha de caducidad o mándame "
+    "una foto de la fecha.\n"
     "• Cuando se acabe: «Ya me comí el caldo» o «Ya tiré el caldo».\n"
     "• Para ver qué hay en el refri: /refri\n"
     "• Para compartir el refri con tu familia: /familiar"
@@ -58,7 +61,57 @@ def _ate_overdue(data):
     )
 
 
+def _date_question(question):
+    """Ask for one food's printed expiry date; returns (text, buttons)."""
+    if not question:
+        return "", None
+    text = (
+        f"📅 ¿Cuándo caduca tu {question['food']}? Escríbeme la fecha (por ejemplo "
+        "15/03/2027) o mándame una foto de la fecha del empaque."
+    )
+    skip = f"{BUTTON_SKIP_DATE}|{question['tupper_id']}"
+    return text, [[{"text": "⏭️ No registrar", "callback_data": skip}]]
+
+
+def _with_question(text, question, speech=None):
+    asked, buttons = _date_question(question)
+    return Message("\n\n".join(part for part in (text, asked) if part), buttons=buttons, speech=speech)
+
+
+def _date(iso):
+    year, month, day = iso.split("-")
+    return f"{day}/{month}/{year}"
+
+
+def _dated(data):
+    outcome, food = data.get("outcome"), data.get("food") or "ese alimento"
+    if outcome == "past":
+        return Message(
+            f"Esa fecha ya pasó. Revisa el empaque: si tu {food} ya caducó, mejor tíralo. "
+            "Si me equivoqué, mándame la fecha otra vez."
+        )
+    if outcome != "dated":
+        return Message(
+            "No estoy esperando ninguna fecha. Si compraste algo que no va en el refri, "
+            "cuéntame qué es y te pregunto cuándo caduca."
+        )
+    when = _date(data["date"])
+    if data.get("tracked"):
+        sentence = f"Anoté {food} con caducidad {when}. Te aviso antes de que caduque."
+        return _with_question(f"✅ {sentence}", data.get("next"), speech=sentence)
+    text = (
+        f"✅ Anoté {food} con caducidad {when}. Falta más de un año, así que no te mando "
+        "avisos: lo verás en /refri."
+    )
+    return _with_question(text, data.get("next"))
+
+
 def _stored(data):
+    if data.get("awaiting_date"):
+        return _with_question(
+            f"🥫 {data['food']} no necesita refrigeración, consulta su fecha de caducidad.",
+            data.get("ask_date"),
+        )
     food, days = data["food"], data["days"]
     text = f"✅ Anotado: {food}. Dura aproximadamente {_days(days)} en el refri. Yo te aviso."
     speech = f"Anotado: {food}. Dura aproximadamente {_days(days)} en el refri. Yo te aviso."
@@ -98,7 +151,7 @@ def _stored_list(data):
             "Mándamelos en otro mensaje."
         )
     speech = f"Anoté {count} de tu lista. Te aviso antes de que venzan." if items else None
-    return Message("\n\n".join(parts), speech=speech)
+    return _with_question("\n\n".join(parts), data.get("ask_date"), speech=speech)
 
 
 def _reminder(data):
@@ -162,6 +215,8 @@ def _resolved(data):
             f"Tu {data.get('food') or 'alimento'} sigue en el refri como vencido. "
             "Escribe /refri para revisarlo."
         )
+    if action == "skip_date":
+        return _with_question(f"Listo. No registré {data.get('food')}.", data.get("next"))
     if action == "review":
         if data.get("review_id"):
             return Message("Vamos uno por uno. 👇")
@@ -179,7 +234,8 @@ def _list_line(item):
     left = item["days_left"]
     when = "ya venció" if left <= 0 else f"vence en {_days(left)}"
     who = f" (lo guardó {item['stored_by_name']})" if item.get("stored_by_name") else ""
-    return f"• {item['food']}: {when}{who}"
+    pantry = "🥫 " if item.get("pantry") else ""
+    return f"• {pantry}{item['food']}: {when}{who}"
 
 
 def _list(data):
@@ -256,6 +312,7 @@ def _escalation(data):
 _BUILDERS = {
     "stored": _stored,
     "stored_list": _stored_list,
+    "dated": _dated,
     "reminder": _reminder,
     "ask": _ask,
     "resolved": _resolved,

@@ -81,6 +81,10 @@
           "Next": "StoreList"
         },
         {
+          "Condition": "{% $ctx.intent = 'expiry_date' %}",
+          "Next": "SetDate"
+        },
+        {
           "Condition": "{% $ctx.intent = 'consumed' or $ctx.intent = 'discarded' %}",
           "Next": "Consume"
         },
@@ -109,7 +113,8 @@
           "chat_id": "{% $chat %}",
           "first_name": "{% $ctx.first_name %}",
           "food": "{% $ctx.food %}",
-          "category": "{% $ctx.category %}"
+          "category": "{% $ctx.category %}",
+          "date": "{% $exists($ctx.date) ? $ctx.date : '' %}"
         }
       },
       "Assign": {
@@ -141,7 +146,18 @@
           "data": "{% $t %}"
         }
       },
-      "Next": "HasReminder"
+      "Next": "IsWaitingForDate"
+    },
+    "IsWaitingForDate": {
+      "Type": "Choice",
+      "Comment": "Pantry food with no date yet: the bot asked for it, and the date answer starts its tracking.",
+      "Choices": [
+        {
+          "Condition": "{% $t.awaiting_date = true %}",
+          "Next": "Done"
+        }
+      ],
+      "Default": "HasReminder"
     },
     "StoreList": {
       "Type": "Task",
@@ -248,6 +264,60 @@
         }
       ],
       "Next": "Done"
+    },
+    "SetDate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${InventoryFunctionArn}",
+        "Payload": {
+          "action": "set_date",
+          "chat_id": "{% $chat %}",
+          "date": "{% $ctx.date %}"
+        }
+      },
+      "Assign": {
+        "r": "{% $states.result.Payload %}",
+        "t": "{% $exists($states.result.Payload.t) ? $states.result.Payload.t : {} %}",
+        "asks": 0
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "ConfirmDate"
+    },
+    "ConfirmDate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${NotifyFunctionArn}",
+        "Payload": {
+          "chat_id": "{% $chat %}",
+          "kind": "dated",
+          "data": "{% $r %}"
+        }
+      },
+      "Next": "IsDateTracked"
+    },
+    "IsDateTracked": {
+      "Type": "Choice",
+      "Comment": "A dated pantry food is tracked by this same execution, like a food stored on its own.",
+      "Choices": [
+        {
+          "Condition": "{% $r.tracked = true %}",
+          "Next": "HasReminder"
+        }
+      ],
+      "Default": "Done"
     },
     "HasReminder": {
       "Type": "Choice",

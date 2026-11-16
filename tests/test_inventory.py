@@ -536,3 +536,93 @@ def test_store_list_retry_keeps_food_already_resolved(tables):
     call("store_list", items=items, request_id="tg-43")
 
     assert stored_item(tables, first["items"][0])["status"] == "CONSUMED"
+
+
+MX = 6 * 3600  # Mexico City is UTC-6
+
+
+def today_plus(days):
+    from datetime import datetime, timedelta, timezone
+
+    today = datetime.fromtimestamp(NOW, timezone(timedelta(hours=-6))).date()
+    return (today + timedelta(days=days)).isoformat()
+
+
+def test_pantry_food_waits_for_its_date_and_is_not_in_the_fridge_yet(tables):
+    result = store(food="atún en lata", category="pantry")
+
+    assert result["awaiting_date"] is True
+    assert result["ask_date"]["food"] == "atún en lata"
+    assert stored_item(tables, result)["status"] == "AWAITING_DATE"
+    assert call("list")["items"] == []
+
+
+def test_a_date_turns_waiting_food_into_tracked_food(tables):
+    store(food="atún en lata", category="pantry")
+
+    result = call("set_date", date=today_plus(10))
+
+    assert result["outcome"] == "dated" and result["tracked"] is True
+    t = result["t"]
+    assert t["days"] == 10 and t["default_used"] is False
+    assert t["expires_at"] == inventory._iso(NOW + 10 * DAY)
+    assert t["remind_at"] == inventory._iso(NOW + 9 * DAY)
+    assert stored_item(tables, t)["status"] == "ACTIVE"
+    assert call("list")["items"][0]["pantry"] is True
+    # Nothing else waits, so the next date answer has nowhere to go.
+    assert call("set_date", date=today_plus(5))["outcome"] == "not_waiting"
+
+
+def test_dates_are_asked_one_food_at_a_time(tables):
+    result = call(
+        "store_list",
+        items=[{"food": "leche", "category": "milk_unopened"}],
+        skipped=["arroz", "atún"],
+        request_id="tg-7",
+    )
+
+    assert result["ask_date"]["food"] == "arroz"
+    first = call("set_date", date=today_plus(30))
+    assert first["t"]["food"] == "arroz" and first["next"]["food"] == "atún"
+    second = call("set_date", date=today_plus(40))
+    assert second["t"]["food"] == "atún" and second["next"] == {}
+
+
+def test_past_or_today_dates_are_refused_and_the_food_keeps_waiting(tables):
+    stored = store(food="atún", category="pantry")
+
+    assert call("set_date", date=today_plus(0))["outcome"] == "past"
+    assert call("set_date", date=today_plus(-3))["outcome"] == "past"
+    assert stored_item(tables, stored)["status"] == "AWAITING_DATE"
+
+
+def test_far_dates_are_listed_without_alerts(tables):
+    store(food="miel", category="pantry")
+
+    result = call("set_date", date=today_plus(inventory.MAX_TRACKED_DAYS + 1))
+
+    assert (result["outcome"], result["tracked"]) == ("dated", False)
+    assert "t" not in result
+    assert call("list")["items"][0]["food"] == "miel"
+
+
+def test_store_with_a_printed_date_uses_it(tables):
+    result = store_with_date = call(
+        "store", food="atún", category="pantry", date=today_plus(20), first_name="Lupita"
+    )
+
+    assert store_with_date["days"] == 20 and "awaiting_date" not in result
+    assert stored_item(tables, result)["status"] == "ACTIVE"
+
+
+def test_skip_button_drops_the_food_and_asks_the_next_one(tables):
+    call("store_list", items=[], skipped=["arroz", "atún"], request_id="tg-8")
+    waiting = call("store_list", items=[], skipped=[], request_id="tg-9")
+    assert waiting["ask_date"] == {}
+    first = call("set_date", date=today_plus(1))  # arroz dated, atún asked next
+    skipped = call("resolve", data=f"x|{first['next']['tupper_id']}")
+
+    assert skipped["action"] == "skip_date" and skipped["food"] == "atún"
+    assert skipped["next"] == {}
+    assert call("resolve", data=f"x|{first['next']['tupper_id']}")["action"] == "already"
+    assert [i["food"] for i in call("list")["items"]] == ["arroz"]
