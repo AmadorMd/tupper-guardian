@@ -117,7 +117,7 @@
 <blockquote>The AI understands the message; the expiry date comes from food-safety data. The model never decides how long food is safe.</blockquote>
 
 <h2>Demo video</h2>
-<div class="video">▶ <strong>Video link goes here</strong> (public YouTube or Vimeo, under 3 minutes)</div>
+<div class="video">▶ <a href="https://youtu.be/_jWVfB_OK5U"><strong>Watch the demo video</strong></a> (2:43)</div>
 
 <h2>Architecture</h2>
 <p>One <strong>AWS Step Functions Standard workflow</strong> is the backbone. Telegram's webhook calls <strong>Amazon API Gateway</strong>, which starts an execution directly, with no Lambda in between. Three small <strong>AWS Lambda</strong> functions cover only what has no native integration: understanding a message, reading and writing the fridge, and sending messages.</p>
