@@ -44,7 +44,8 @@ def test_text_is_classified_by_the_model(bedrock):
     }
     call = fake.calls[0]
     assert call["modelId"] == "test-model"
-    assert call["inferenceConfig"]["maxTokens"] == 200
+    # Room for a shopping list of MAX_LIST_ITEMS foods.
+    assert call["inferenceConfig"]["maxTokens"] == understand.MAX_REPLY_TOKENS
     assert call["messages"][0]["content"] == [{"text": "Guardé queso panela en el refri"}]
 
 
@@ -146,3 +147,70 @@ def test_throwing_food_away_is_its_own_intent(bedrock):
 
     assert result["intent"] == "discarded" and result["food"] == "caldo"
     assert "discarded: the user says they threw a food away" in understand.SYSTEM_PROMPT
+
+
+SHOPPING_LIST = {
+    "intent": "store_list",
+    "items": [
+        {"food": "Leche", "category": "milk_unopened"},
+        {"food": "huevos", "category": "raw_eggs"},
+        {"food": "arroz", "category": "pantry"},
+        {"food": "", "category": "raw_eggs"},
+        {"food": "leche", "category": "milk_unopened"},
+        {"food": "chayote", "category": "invented_category"},
+    ],
+}
+
+
+def test_shopping_list_becomes_one_item_per_food(bedrock):
+    bedrock(SHOPPING_LIST)
+
+    result = understand.handler(message(text="Lista del súper: leche, huevos, arroz, chayote"))
+
+    assert result["intent"] == "store_list"
+    assert result["items"] == [
+        {"food": "Leche", "category": "milk_unopened"},
+        {"food": "huevos", "category": "raw_eggs"},
+        {"food": "chayote", "category": "other"},
+    ]
+    # Pantry food does not go in the fridge: reported, never tracked.
+    assert result["skipped"] == ["arroz"]
+
+
+def test_shopping_list_is_capped(bedrock):
+    many = [{"food": f"fruta {n}", "category": "whole_fruit"} for n in range(40)]
+    bedrock({"intent": "store_list", "items": many})
+
+    result = understand.handler(message(text="mi lista"))
+
+    assert len(result["items"]) == understand.MAX_LIST_ITEMS
+
+
+@pytest.mark.parametrize(
+    "items",
+    [[], "leche", [{"food": "", "category": "x"}], [{"nope": 1}], None],
+)
+def test_shopping_list_without_any_food_is_unknown(bedrock, items):
+    bedrock({"intent": "store_list", "items": items})
+
+    assert understand.handler(message(text="lista"))["intent"] == "unknown"
+
+
+def test_shopping_list_with_only_pantry_food_is_still_answered(bedrock):
+    bedrock({"intent": "store_list", "items": [{"food": "atún en lata", "category": "pantry"}]})
+
+    result = understand.handler(message(text="compré atún"))
+
+    assert (result["intent"], result["items"], result["skipped"]) == (
+        "store_list",
+        [],
+        ["atún en lata"],
+    )
+
+
+def test_prompt_explains_shopping_lists_and_grocery_categories():
+    prompt = understand.SYSTEM_PROMPT
+    assert "store_list" in prompt and "pantry" in prompt
+    assert {"raw_eggs", "milk_unopened", "whole_fruit", "root_vegetables"} <= understand.CATEGORIES
+    # "pantry" is a list-only marker, never a shelf-life category.
+    assert "pantry" not in understand.CATEGORIES

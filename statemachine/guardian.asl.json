@@ -7,6 +7,10 @@
       "Type": "Choice",
       "Choices": [
         {
+          "Condition": "{% $exists($states.input.lifecycle) %}",
+          "Next": "StartLifecycle"
+        },
+        {
           "Condition": "{% $exists($states.input.callback_query) %}",
           "Next": "ResolveButton"
         },
@@ -16,6 +20,17 @@
         }
       ],
       "Default": "Done"
+    },
+    "StartLifecycle": {
+      "Type": "Pass",
+      "Comment": "One food of a shopping list, started by TrackEach: already stored and confirmed, so it goes straight to its reminder and question.",
+      "Assign": {
+        "t": "{% $states.input.lifecycle %}",
+        "chat": "{% $states.input.chat_id %}",
+        "asks": 0,
+        "cb": ""
+      },
+      "Next": "HasReminder"
     },
     "Understand": {
       "Type": "Task",
@@ -60,6 +75,10 @@
         {
           "Condition": "{% $ctx.intent = 'store' %}",
           "Next": "Store"
+        },
+        {
+          "Condition": "{% $ctx.intent = 'store_list' %}",
+          "Next": "StoreList"
         },
         {
           "Condition": "{% $ctx.intent = 'consumed' or $ctx.intent = 'discarded' %}",
@@ -123,6 +142,110 @@
         }
       },
       "Next": "HasReminder"
+    },
+    "StoreList": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${InventoryFunctionArn}",
+        "Payload": {
+          "action": "store_list",
+          "chat_id": "{% $chat %}",
+          "first_name": "{% $ctx.first_name %}",
+          "items": "{% $ctx.items %}",
+          "skipped": "{% $ctx.skipped %}"
+        }
+      },
+      "Assign": {
+        "t": "{% $states.result.Payload %}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "ConfirmList"
+    },
+    "ConfirmList": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${NotifyFunctionArn}",
+        "Payload": {
+          "chat_id": "{% $chat %}",
+          "kind": "stored_list",
+          "data": "{% $t %}"
+        }
+      },
+      "Next": "TrackEach"
+    },
+    "TrackEach": {
+      "Type": "Map",
+      "Comment": "Each food gets its own execution, so it waits, reminds and asks exactly like a food stored on its own.",
+      "Items": "{% $t.items %}",
+      "MaxConcurrency": 5,
+      "ItemSelector": {
+        "t": "{% $states.context.Map.Item.Value %}",
+        "chat": "{% $chat %}"
+      },
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "StartTracking",
+        "States": {
+          "StartTracking": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:sfn:startExecution",
+            "Arguments": {
+              "StateMachineArn": "{% $states.context.StateMachine.Id %}",
+              "Name": "{% $states.context.Execution.Name & '-' & $states.input.t.tupper_id %}",
+              "Input": "{% $string({'lifecycle': $states.input.t, 'chat_id': $states.input.chat}) %}"
+            },
+            "Output": "{% {} %}",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Sfn.SfnException",
+                  "Sfn.ThrottlingException"
+                ],
+                "IntervalSeconds": 1,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "Sfn.ExecutionAlreadyExistsException"
+                ],
+                "Next": "AlreadyTracked"
+              }
+            ],
+            "End": true
+          },
+          "AlreadyTracked": {
+            "Type": "Succeed"
+          }
+        }
+      },
+      "Output": "{% {} %}",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyError"
+        }
+      ],
+      "Next": "Done"
     },
     "HasReminder": {
       "Type": "Choice",

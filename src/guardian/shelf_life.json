@@ -28,8 +28,16 @@
     {"category": "guacamole", "days": 1, "examples": "guacamole, aguacate abierto"},
     {"category": "cut_fruit", "days": 3, "examples": "fruta picada, melon, sandia, papaya"},
     {"category": "prepared_salad", "days": 3, "examples": "ensalada de pollo, ensalada de atun, ensalada rusa"},
-    {"category": "leafy_salad", "days": 3, "examples": "ensalada verde, lechuga lavada"},
+    {"category": "leafy_salad", "days": 3, "examples": "ensalada verde, lechuga lavada, lechuga, espinaca, cilantro"},
     {"category": "dairy_dessert", "days": 3, "examples": "flan, arroz con leche, gelatina de leche, pastel con crema"},
-    {"category": "fresh_juice", "days": 2, "examples": "jugo natural, agua fresca"}
+    {"category": "fresh_juice", "days": 2, "examples": "jugo natural, agua fresca"},
+    {"category": "raw_eggs", "days": 21, "examples": "huevo, huevos, docena de huevo"},
+    {"category": "milk_unopened", "days": 7, "examples": "leche recien comprada, litro de leche"},
+    {"category": "butter", "days": 30, "examples": "mantequilla, margarina"},
+    {"category": "deli_meat_unopened", "days": 14, "examples": "jamon, salchichas, pechuga de pavo en paquete cerrado"},
+    {"category": "whole_fruit", "days": 7, "examples": "manzana, naranja, uvas, pera, mango, limon"},
+    {"category": "berries", "days": 3, "examples": "fresas, zarzamoras, frambuesas, moras"},
+    {"category": "fresh_vegetables", "days": 3, "examples": "jitomate, chile, calabacita, brocoli, pepino, ejotes, elote"},
+    {"category": "root_vegetables", "days": 7, "examples": "zanahoria, betabel, rabano"}
   ]
 }

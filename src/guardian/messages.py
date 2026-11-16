@@ -19,6 +19,7 @@ HELP_TEXT = (
     "familia y te aviso antes de que algo se eche a perder.\n\n"
     "• Cuéntame qué guardaste: «Guardé caldo de pollo en el refri».\n"
     "• O mándame una foto del alimento.\n"
+    "• ¿Fuiste al súper? Mándame la lista o una foto del ticket y anoto todo.\n"
     "• Cuando se acabe: «Ya me comí el caldo» o «Ya tiré el caldo».\n"
     "• Para ver qué hay en el refri: /refri\n"
     "• Para compartir el refri con tu familia: /familiar"
@@ -66,6 +67,28 @@ def _stored(data):
         text += extra
         speech += extra
     return Message(text, speech=speech)
+
+
+def _stored_list(data):
+    """One confirmation for a whole shopping list, with each food's days."""
+    items, skipped = data.get("items") or [], data.get("skipped") or []
+    parts = []
+    if items:
+        count = "1 alimento" if len(items) == 1 else f"{len(items)} alimentos"
+        lines = [
+            f"• {item['food']}: {_days(item['days'])}"
+            + (" (no lo tengo en mi tabla, usé un tiempo corto)" if item.get("default_used") else "")
+            for item in items
+        ]
+        parts.append(
+            f"🛒 Anoté {count} de tu lista. Días en el refri según la guía FoodKeeper "
+            "del USDA, con el tiempo más corto que recomienda:\n" + "\n".join(lines)
+        )
+        parts.append("Te aviso uno por uno antes de que venzan.")
+    if skipped:
+        parts.append(f"No anoté {', '.join(skipped)} porque no va en el refri.")
+    speech = f"Anoté {count} de tu lista. Te aviso antes de que venzan." if items else None
+    return Message("\n\n".join(parts), speech=speech)
 
 
 def _reminder(data):
@@ -222,6 +245,7 @@ def _escalation(data):
 
 _BUILDERS = {
     "stored": _stored,
+    "stored_list": _stored_list,
     "reminder": _reminder,
     "ask": _ask,
     "resolved": _resolved,

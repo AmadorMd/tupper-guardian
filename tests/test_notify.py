@@ -284,3 +284,29 @@ def test_old_snooze_button_reply_points_to_the_list():
     text = messages.build("resolved", {"action": "pending", "food": "caldo"}).text
 
     assert "caldo" in text and "/refri" in text and "mañana" not in text
+
+
+def test_shopping_list_confirmation_names_every_food_and_the_source():
+    message = messages.build(
+        "stored_list",
+        {
+            "items": [
+                {"food": "leche", "days": 7, "default_used": False},
+                {"food": "chayote", "days": 2, "default_used": True},
+            ],
+            "skipped": ["arroz", "atún"],
+        },
+    )
+
+    assert "Anoté 2 alimentos" in message.text
+    assert "• leche: 7 días" in message.text
+    assert "• chayote: 2 días (no lo tengo en mi tabla, usé un tiempo corto)" in message.text
+    assert "FoodKeeper" in message.text
+    assert "No anoté arroz, atún" in message.text
+    assert message.speech and "2 alimentos" in message.speech
+
+
+def test_shopping_list_with_nothing_for_the_fridge():
+    text = messages.build("stored_list", {"items": [], "skipped": ["arroz"]}).text
+
+    assert "No anoté arroz" in text and "Anoté" not in text.replace("No anoté", "")

@@ -479,3 +479,37 @@ def test_old_snooze_button_on_an_item_without_an_open_question_changes_nothing(t
     assert pressed["action"] == "pending" and pressed["food"] == "caldo de pollo"
     assert pressed["task_token"] == "" and pressed["review_id"] == ""
     assert tables.scan()["Items"] == before
+
+
+def test_store_list_tracks_every_food_with_its_own_dates(tables):
+    result = call(
+        "store_list",
+        first_name="Lupita",
+        items=[
+            {"food": "caldo", "category": "cooked_soup_stew"},
+            {"food": "guacamole", "category": "guacamole"},
+            {"food": "chayote", "category": "other"},
+        ],
+        skipped=["arroz"],
+    )
+
+    items = result["items"]
+    assert [i["food"] for i in items] == ["caldo", "guacamole", "chayote"]
+    assert [i["days"] for i in items] == [3, 1, inventory.DEFAULT_DAYS]
+    assert [i["default_used"] for i in items] == [False, False, True]
+    assert len({i["item_id"] for i in items}) == 3
+    assert items[1]["remind_at"] == ""
+    assert result["skipped"] == ["arroz"]
+    for entry in items:
+        saved = stored_item(tables, entry)
+        assert saved["status"] == "ACTIVE" and saved["stored_by"] == str(CHAT)
+    assert [i["food"] for i in call("list")["items"]] == ["guacamole", "chayote", "caldo"]
+
+
+def test_store_list_goes_to_the_shared_fridge(tables):
+    share_fridge()
+
+    result = call("store_list", chat=RELATIVE, items=[{"food": "caldo", "category": "cooked_soup_stew"}])
+
+    assert result["items"][0]["fridge_key"] == str(CHAT)
+    assert stored_item(tables, result["items"][0])["stored_by"] == str(RELATIVE)

@@ -165,6 +165,12 @@ Resources:
             - Effect: Allow
               Action: dynamodb:GetItem
               Resource: !GetAtt TuppersTable.Arn
+            # A shopping list starts one execution per food in this same state
+            # machine. Its own ARN would be a circular reference, so this is
+            # scoped to the name CloudFormation generates for it.
+            - Effect: Allow
+              Action: states:StartExecution
+              Resource: !Sub arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:GuardianStateMachine-*
             # Task tokens are opaque and bound to one execution, and scoping
             # this to the state machine ARN would be a circular reference.
             - Effect: Allow

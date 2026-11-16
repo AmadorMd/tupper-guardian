@@ -232,11 +232,10 @@ def _pick(food, items):
     return None
 
 
-def store(event):
-    chat_key = str(event["chat_id"])
-    fridge_key = _fridge_key(chat_key)
-    food = event["food"]
-    days, default_used = _shelf_days(event.get("category") or "other")
+def _store_one(chat_key, fridge_key, first_name, food, category):
+    """Put one food in the fridge; return what its tracking workflow needs."""
+    category = category or "other"
+    days, default_used = _shelf_days(category)
     per_day = _seconds_per_day()
     now = _now()
     expires = now + days * per_day
@@ -247,16 +246,15 @@ def store(event):
             "chat_id": fridge_key,
             "item_id": item_id,
             "food": food,
-            "category": event.get("category") or "other",
+            "category": category,
             "status": "ACTIVE",
             "stored_by": chat_key,
-            "stored_by_name": event.get("first_name") or "",
+            "stored_by_name": first_name or "",
             "stored_at": _iso(now),
             "expires_at": _iso(expires),
             "expires_epoch": int(expires),
         }
     )
-    _remember_name(chat_key, event.get("first_name"))
     return {
         "fridge_key": fridge_key,
         "tupper_id": tupper_id,
@@ -271,6 +269,28 @@ def store(event):
         "snooze_seconds": per_day,
         "turn_poll_seconds": max(MIN_TURN_POLL_SECONDS, min(per_day // 4, MAX_TURN_POLL_SECONDS)),
     }
+
+
+def store(event):
+    chat_key = str(event["chat_id"])
+    result = _store_one(
+        chat_key, _fridge_key(chat_key), event.get("first_name"), event["food"], event.get("category")
+    )
+    _remember_name(chat_key, event.get("first_name"))
+    return result
+
+
+def store_list(event):
+    """Store every food of a shopping list; each one is tracked on its own."""
+    chat_key = str(event["chat_id"])
+    fridge_key = _fridge_key(chat_key)
+    first_name = event.get("first_name")
+    items = [
+        _store_one(chat_key, fridge_key, first_name, entry["food"], entry.get("category"))
+        for entry in event.get("items") or []
+    ]
+    _remember_name(chat_key, first_name)
+    return {"items": items, "skipped": event.get("skipped") or []}
 
 
 def consume(event):
@@ -492,6 +512,7 @@ def link(event):
 
 _ACTIONS = {
     "store": store,
+    "store_list": store_list,
     "consume": consume,
     "list": list_active,
     "resolve": resolve,

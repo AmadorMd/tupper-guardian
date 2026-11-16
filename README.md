@@ -50,10 +50,17 @@ flowchart LR
 7. **Shared fridge.** `/familiar` returns a single-use link. Whoever opens it
    joins the fridge: same list, and any member can resolve any item.
 8. **Voice.** Confirmations and alerts are also sent as a voice note (Polly).
+9. **Shopping list.** A list (text, or a photo of the list or the receipt)
+   is split into foods, up to 20 per message. Each one gets the shortest
+   refrigerator time that USDA FoodKeeper recommends for its category and its
+   own execution, started by a `Map` state, so it is reminded and asked about
+   like any other item. Food that does not go in the fridge (rice, cans,
+   bread) is listed as not stored.
 
 | You send | The bot does |
 |---|---|
 | "Guardé caldo de pollo en el refri" or a photo | Registers it and schedules the alerts |
+| "Lista del súper: leche, huevos, jitomate, arroz" or a photo of the receipt | Registers every fridge food with its own dates and says what it skipped |
 | "Ya me comí el caldo" / "Ya tiré el caldo" | Removes it from the fridge |
 | "¿Qué tengo en el refri?" or `/refri` | Lists what is in the fridge, expired items first |
 | `/familiar` | Returns a single-use link to share the fridge with a relative |
@@ -166,5 +173,5 @@ After deploying in demo mode (a "day" lasts 20 seconds):
 
 ## Roadmap
 
-- **Shopping list import (must-have).** Send the shopping list and have every
-  product stored with an expiry date recommended by a third-party source.
+- **Opened vs. unopened.** A shopping list assumes unopened packages; telling
+  the bot when a package is opened would shorten its date.

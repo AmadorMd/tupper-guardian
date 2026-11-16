@@ -121,3 +121,37 @@ def test_items_are_read_from_the_fridge_partition():
     for name in ("CheckBeforeReminder", "CheckBeforeAsk"):
         key = STATES[name]["Arguments"]["Key"]["chat_id"]["S"]
         assert key == "{% $t.fridge_key %}", name
+
+
+def test_shopping_list_starts_one_tracked_execution_per_food():
+    assert {"Condition": "{% $ctx.intent = 'store_list' %}", "Next": "StoreList"} in STATES[
+        "ByIntent"
+    ]["Choices"]
+    assert STATES["StoreList"]["Arguments"]["Payload"]["action"] == "store_list"
+    assert STATES["StoreList"]["Next"] == "ConfirmList"
+    assert STATES["ConfirmList"]["Arguments"]["Payload"]["kind"] == "stored_list"
+    track = STATES["TrackEach"]
+    assert track["Type"] == "Map" and track["Items"] == "{% $t.items %}"
+    start = track["ItemProcessor"]["States"]["StartTracking"]
+    assert start["Resource"] == "arn:aws:states:::aws-sdk:sfn:startExecution"
+    assert start["Arguments"]["StateMachineArn"] == "{% $states.context.StateMachine.Id %}"
+    # Named after the parent execution, so a retry cannot track a food twice.
+    assert "$states.context.Execution.Name" in start["Arguments"]["Name"]
+    assert any(
+        catch["ErrorEquals"] == ["Sfn.ExecutionAlreadyExistsException"]
+        for catch in start.get("Catch", [])
+    )
+
+
+def test_tracked_food_execution_skips_straight_to_its_lifecycle():
+    first = STATES["Route"]["Choices"][0]
+    assert first == {"Condition": "{% $exists($states.input.lifecycle) %}", "Next": "StartLifecycle"}
+    begin = STATES["StartLifecycle"]
+    assert set(begin["Assign"]) == {"t", "chat", "asks", "cb"}
+    assert begin["Next"] == "HasReminder"
+
+
+def test_state_machine_may_start_only_its_own_executions():
+    block = TEMPLATE.split("GuardianStateMachine:")[1].split("# ----")[0]
+    assert "Action: states:StartExecution" in block
+    assert ":stateMachine:GuardianStateMachine-*" in block
