@@ -1,52 +1,75 @@
-# Tupper Guardian — demo video script
+# Tupper Guardian — demo video timeline (HyperFrames)
 
-Requirement: a public video (YouTube or Vimeo), under 3 minutes, linked in the
-"demo" field, **showing the build running end to end**. So every claim in the
-narration is shown working: a real message in Telegram, the real execution in
-the AWS console, and the real reply on the phone.
+Requirement: a public video (YouTube or Vimeo), **under 3 minutes**, linked in
+the submission's "demo" field, **showing the build running end to end**.
+Every claim in the narration is shown working on screen.
 
-Target length: 2:45. Narration in English; the bot speaks Spanish, so add
-English subtitles for the bot's messages and voice notes.
+- Total: **2:52** (172 s), 1920×1080, 30 fps.
+- Narration in English. The bot speaks Spanish, so every bot message on screen
+  gets an English subtitle.
+- Recorded in demo mode (1 "day" = 20 s, an unanswered question escalates after
+  45 s). Scene 4 says so on screen.
 
-Deploy in demo mode before recording (one "day" = 20 s, unanswered question
-escalates after 45 s), and say so on screen.
+## Tracks
 
-## Before recording
+| Track | Content |
+|---|---|
+| 0 | Video clips: kitchen shots and screen recordings (`assets/*.mp4`) |
+| 1 | Overlays: titles, labels, English subtitles for bot messages |
+| 2 | Narration (`assets/narration/s01.mp3` … one file per scene) |
+| 3 | Background music at low volume (optional) |
 
-- Deployed with `SECONDS_PER_DAY=20 ASK_TIMEOUT_SECONDS=45`.
-- Telegram in light mode, notifications on, chat cleared or a fresh test
-  account. Phone screen recording on.
-- AWS console open in a browser, signed in, region us-east-2:
-  Step Functions → the `GuardianStateMachine-…` state machine → Executions.
-- Props: a slice of cheese in a plain plastic bag (the real story), a container
-  of leftovers, a can or a bag of rice with a printed expiry date, a shopping
-  list or receipt.
-- The architecture diagram exported as PNG from `docs/builder-center-writeup.html`.
+## Assets to record
 
-## Shots
-
-| Time | On screen | Narration |
+| File | What | How |
 |---|---|---|
-| 0:00–0:20 | **Hook.** Kitchen, morning. A hand pulls a slice of cheese in a plain plastic bag out of the fridge. Close-up: no label, no date. | "One morning, my mother and my sister found this in our fridge: a slice of cheese in a plain bag, with what looked like mold. Nobody knew how long it had been there. And I realized we'd had this exact conversation before." |
-| 0:20–0:40 | Market counter or a cutting board: ham and cheese weighed and bagged. Then a tomato with the bad part cut off. | "In Mexico, a lot of food is bought by weight. It comes in a plastic bag with no expiry date. And many people, like my parents, grew up with little to spare: if it doesn't smell bad, they eat it. This isn't about saving money. It's about health." |
-| 0:40–0:50 | Title card: **Tupper Guardian** — "a family fridge that remembers for you". Text: "Demo mode: 1 day = 20 seconds". | "So I built Tupper Guardian. No app to install, no website. Just a chat." |
-| 0:50–1:05 | **Text.** Phone: type "Guardé queso panela en el refri". Reply "✅ Anotado: queso panela. Dura aproximadamente 5 días…" plus the voice note playing (subtitle it). | "You tell it what you stored, in your own words. It answers in text and in voice, for people who'd rather listen than read." |
-| 1:05–1:20 | **Photo.** Take a photo of the leftovers container and send it. Reply with the recognized food and its days. | "Or just send a photo. Amazon Bedrock recognizes the food, but it never decides how long it's safe: that comes from USDA food-safety data." |
-| 1:20–1:40 | **Shopping list.** Send "Lista del súper: leche, huevos, fresas, jitomate, arroz, atún en lata". Reply: one line per food with its days, "🥫 No necesitan refrigeración, consulta su fecha de caducidad: arroz, atún en lata", then "📅 ¿Cuál es la fecha de caducidad de «arroz»?". Send a **photo of the printed date** on the package. Reply "✅ Anoté arroz con caducidad…". | "A whole shopping list works too. Food that doesn't go in the fridge has a printed date, so the bot asks for it — and you can just take a picture of it." |
-| 1:40–2:05 | **The key moment.** Split screen: phone on one side, the Step Functions execution graph on the other, paused on **AskWhatHappened** (blue, "waiting"). The phone receives "⚠️ Llegó la fecha límite de «fresas». ¿Qué pasó?" with buttons. Tap **"😋 Ya me lo comí"**. The graph moves on to the next state and the phone shows the confirmation. | "When food expires, it asks what happened. That question is a Step Functions execution paused on a task token. It costs nothing while it waits for a human. One tap, and the same execution wakes up and finishes." |
-| 2:05–2:20 | **Nothing disappears by silence.** Don't answer a question for 45 s (cut the wait). The bot says it stays in the fridge for review and explains /familiar. Type `/refri`: expired items first, with the "🔎 Revisar vencidos" button. | "If nobody answers, the food doesn't vanish from the list. It stays flagged, the family is told, and anyone can review it. (If you have a second phone: show the relative receiving the alert here.)" |
-| 2:20–2:40 | **Architecture.** The diagram (Figure 1), then a quick pan of the console: the executions list showing one child execution per shopping-list food (`tg-…-…`). | "It's 100% serverless, with no pipeline: API Gateway starts Step Functions directly, three small Lambdas handle language, data and messages, DynamoDB is the source of truth, and Polly gives it a voice. When nobody uses it, nothing runs." |
-| 2:40–2:50 | Back in the kitchen: the cheese goes in the trash; the phone shows the fridge list. | "Food has a shelf life, often shorter than we think. Tupper Guardian helps families take care of each other. Telegram today, WhatsApp next." |
+| `kitchen-cheese.mp4` | Hand takes the slice of cheese in a plain bag out of the fridge; close-up with no label or date | Phone, vertical framing avoided: shoot landscape |
+| `granel.mp4` | Ham or cheese weighed at a counter, or a tomato with the bad part cut off | Phone, landscape |
+| `phone-store-text.mp4` | Telegram: "Guardé queso panela en el refri" → confirmation + voice note playing | Phone screen recording |
+| `phone-store-photo.mp4` | Telegram: photo of a leftovers container → confirmation | Phone screen recording |
+| `phone-list.mp4` | Telegram: shopping list → confirmation with days + 🥫 line → date question → photo of a can's printed date → "✅ Anoté…" | Phone screen recording |
+| `phone-question.mp4` | Telegram: "⚠️ Llegó la fecha límite de «…». ¿Qué pasó?" → tap "😋 Ya me lo comí" → "¡Buen provecho!" | Phone screen recording, **same moment** as the next one |
+| `console-question.mp4` | AWS console, Step Functions execution graph paused on **AskWhatHappened**, then moving on after the tap | Mac screen recording (⌘⇧5), browser zoomed so states are readable |
+| `phone-family.mp4` | Second phone: "👋 … tiene algo vencido en el refri y no ha respondido: …" → `/refri` with expired items first and "🔎 Revisar vencidos" | Second phone screen recording |
+| `console-map.mp4` | Executions list showing one `tg-<update>-<id>` child per shopping-list food | Mac screen recording |
+| `architecture.png` | Figure 1 from `docs/builder-center-writeup.html` (Download PNG) | Export |
+| `kitchen-close.mp4` | The cheese goes into the trash; phone shows the fridge list | Phone, landscape |
 
-## Recording tips
+Hide personal data before recording: Telegram shows account names, and the
+console shows the AWS account id in the top bar.
 
-- Record the phone and the console separately and edit them side by side; the
-  20-second "day" makes the waits short, and you can cut them.
-- For the key moment, store the food first, open its execution in the console
-  (Executions → the newest `tg-…` running), and wait on the graph until the
-  question arrives.
-- Keep personal names and chat ids out of the frame. Telegram shows your
-  account name at the top of the chat.
-- Subtitle every bot message in English; the jury may not speak Spanish.
-- Upload as **Public** (or Unlisted if the rules allow it; the requirement says
-  public) and paste the link in the "demo" field and in the write-up.
+## Scenes
+
+| # | Start | Dur. | Track 0 (clip) | Track 1 (overlay) | Narration (track 2) |
+|---|---|---|---|---|---|
+| 1 | 0:00 | 8 s | `kitchen-cheese.mp4` (open fridge, hand takes the bag) | — | "One morning, my mother and my sister found this in our fridge." |
+| 2 | 0:08 | 12 s | `kitchen-cheese.mp4` (close-up, no label, no date) | "No label. No date." | "A slice of cheese in a plain bag, with what looked like mold. Nobody knew how long it had been there, and I realized we'd had this exact conversation before." |
+| 3 | 0:20 | 18 s | `granel.mp4` | "In Mexico, a lot of food is sold by weight — with no expiry date." | "In Mexico, a lot of food is bought by weight and handed over in a plastic bag, with no date. And many people, like my parents, grew up with little to spare: if it doesn't smell bad, they eat it. This isn't about saving money. It's about health." |
+| 4 | 0:38 | 8 s | Title card (solid background) | **Tupper Guardian** · "A family fridge that remembers for you" · small: "Demo mode: 1 day = 20 seconds" | "So I built Tupper Guardian. No app to install. Just a chat." |
+| 5 | 0:46 | 16 s | `phone-store-text.mp4` | Subtitle: "Got it: queso panela. Lasts about 5 days in the fridge. I'll let you know." | "You tell it what you stored, in your own words. It answers in text and in voice, for people who'd rather listen than read." |
+| 6 | 1:02 | 14 s | `phone-store-photo.mp4` | Label: "Amazon Bedrock: understands · USDA FoodKeeper: decides" | "Or just send a photo. Amazon Bedrock recognizes the food, but it never decides how long it's safe. That comes from USDA food-safety data." |
+| 7 | 1:16 | 24 s | `phone-list.mp4` | Subtitles for the list confirmation, "No refrigeration needed — check its expiry date", and the date question | "A whole shopping list works too: one message, every food tracked. Food that doesn't go in the fridge has a printed date, so the bot asks for it, and you can simply take a picture of the label." |
+| 8 | 1:40 | 28 s | Split screen: `phone-question.mp4` left, `console-question.mp4` right | Label on the console: "Paused on a task token — waiting for a human" → after the tap: "Resumed" | "When food reaches its date, the bot asks what happened. Behind that question is an AWS Step Functions execution, paused on a task token. It costs nothing while it waits for a person. One tap, and the same execution wakes up and finishes the job." |
+| 9 | 2:08 | 15 s | `phone-family.mp4` | Subtitle: "Mamá has something expired in the fridge and hasn't answered" | "And if nobody answers, the food doesn't vanish from the list. It stays flagged, and the rest of the family is told, so anyone can help check the fridge." |
+| 10 | 2:23 | 20 s | `architecture.png` (slow zoom), then `console-map.mp4` | Service labels appear as they are named | "It's 100% serverless, with no pipeline. API Gateway starts Step Functions directly. Three small Lambda functions handle language, data and messages. DynamoDB is the source of truth, and Amazon Polly gives it a voice. When nobody uses it, nothing runs." |
+| 11 | 2:43 | 9 s | `kitchen-close.mp4` | End card: "github.com/AmadorMd/tupper-guardian" · "Telegram today, WhatsApp next" | "Food has a shelf life, often shorter than we think. Tupper Guardian helps families take care of each other." |
+
+Narration pace: about 2.5 words per second. Each line above fits its scene.
+If a recorded line runs long, extend that scene and trim the waits in the
+screen recordings; keep the total under 3:00.
+
+## Building it with HyperFrames
+
+1. Install FFmpeg: `brew install ffmpeg`.
+2. Install the skills (interactive picker, choose **Core Skills**):
+   `npx skills add heygen-com/hyperframes`
+3. Create the project next to the repo:
+   `npx hyperframes init tupper-guardian-video` (in `~/Sites/personal`).
+4. Put the recordings in `tupper-guardian-video/assets/`, named as above, and
+   one narration file per scene in `assets/narration/`.
+5. Compose each scene as a `class="clip"` element with `data-start`,
+   `data-duration` and `data-track-index` from the table, and animate overlays
+   with a paused GSAP timeline registered in `window.__timelines`.
+6. Preview with `npx hyperframes preview`, render with `npx hyperframes render`.
+7. Upload the MP4 to YouTube as **Public**, then paste the link in the
+   submission's "demo" field and in `docs/builder-center-writeup.html`.
