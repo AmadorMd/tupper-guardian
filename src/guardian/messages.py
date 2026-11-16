@@ -51,9 +51,9 @@ def _ate_overdue(data):
     Spoken as well, because this is the message that matters most."""
     advice = (
         "Sé que cuesta tirar comida: a muchos nos enseñaron a no desperdiciar nada. "
-        f"Pero tu {data['food']} ya había pasado su fecha, y comerlo así puede hacerte "
-        "daño aunque se vea y huela bien, o aunque le quites la parte fea. Tirarlo a "
-        "tiempo no es desperdicio: es cuidar tu salud. Si llegas a sentirte mal, "
+        f"Pero «{data['food']}» ya había pasado su fecha, y comer algo así puede hacerte "
+        "daño aunque se vea y huela bien, o aunque le quites la parte fea. Tirar a tiempo "
+        "lo que ya caducó no es desperdicio: es cuidar tu salud. Si llegas a sentirte mal, "
         "avísale a alguien de confianza o a tu médico."
     )
     return Message(
@@ -66,7 +66,7 @@ def _date_question(question):
     if not question:
         return "", None
     text = (
-        f"📅 ¿Cuándo caduca tu {question['food']}? Escríbeme la fecha (por ejemplo "
+        f"📅 ¿Cuál es la fecha de caducidad de «{question['food']}»? Escríbemela (por ejemplo "
         "15/03/2027) o mándame una foto de la fecha del empaque."
     )
     skip = f"{BUTTON_SKIP_DATE}|{question['tupper_id']}"
@@ -87,7 +87,7 @@ def _dated(data):
     outcome, food = data.get("outcome"), data.get("food") or "ese alimento"
     if outcome == "past":
         return Message(
-            f"Esa fecha ya pasó. Revisa el empaque: si tu {food} ya caducó, mejor tíralo. "
+            f"Esa fecha ya pasó. Revisa el empaque de «{food}»: si ya caducó, por tu salud, mejor a la basura. "
             "Si me equivoqué, mándame la fecha otra vez."
         )
     if outcome != "dated":
@@ -97,11 +97,11 @@ def _dated(data):
         )
     when = _date(data["date"])
     if data.get("tracked"):
-        sentence = f"Anoté {food} con caducidad {when}. Te aviso antes de que caduque."
+        sentence = f"Anoté {food} con caducidad {when}. Te aviso antes de esa fecha."
         return _with_question(f"✅ {sentence}", data.get("next"), speech=sentence)
     text = (
         f"✅ Anoté {food} con caducidad {when}. Falta más de un año, así que no te mando "
-        "avisos: lo verás en /refri."
+        "avisos; la fecha queda guardada en /refri."
     )
     return _with_question(text, data.get("next"))
 
@@ -109,7 +109,7 @@ def _dated(data):
 def _stored(data):
     if data.get("awaiting_date"):
         return _with_question(
-            f"🥫 {data['food']} no necesita refrigeración, consulta su fecha de caducidad.",
+            f"🥫 No necesita refrigeración: «{data['food']}». Consulta su fecha de caducidad.",
             data.get("ask_date"),
         )
     food, days = data["food"], data["days"]
@@ -130,7 +130,7 @@ def _stored_list(data):
         count = "1 alimento" if len(items) == 1 else f"{len(items)} alimentos"
         lines = [
             f"• {item['food']}: {_days(item['days'])}"
-            + (" (no lo tengo en mi tabla, usé un tiempo corto)" if item.get("default_used") else "")
+            + (" (no está en mi tabla, usé un tiempo corto)" if item.get("default_used") else "")
             for item in items
         ]
         parts.append(
@@ -155,7 +155,7 @@ def _stored_list(data):
 
 
 def _reminder(data):
-    sentence = f"Tu {data['food']} vence mañana. Aprovéchalo hoy."
+    sentence = f"Mañana vence: {data['food']}. Aprovecha hoy."
     return Message(f"⏰ {sentence}", speech=sentence)
 
 
@@ -184,9 +184,9 @@ def _ask(data):
         return Message(f"🔎 {sentence}{more}", buttons=final_buttons)
     if data.get("last_chance"):
         # Final question: no snooze, so the user tells us how the food ended up.
-        sentence = f"Último aviso: tu {data['food']} ya pasó su fecha límite. ¿Qué pasó con él?"
+        sentence = f"Último aviso: ya pasó la fecha límite de «{data['food']}». ¿Qué pasó?"
         return Message(f"⚠️ {sentence}{more}", buttons=final_buttons, speech=sentence)
-    sentence = f"Tu {data['food']} ya llegó a su fecha límite. ¿Qué pasó con él?"
+    sentence = f"Llegó la fecha límite de «{data['food']}». ¿Qué pasó?"
     buttons = [
         [{"text": "😋 Ya me lo comí", **eaten}],
         [{"text": "🗑️ Lo tiré", **tossed}],
@@ -208,12 +208,12 @@ def _resolved(data):
         return _removed(data, eaten=action == "eaten")
     if action == "snooze":
         return Message(
-            "De acuerdo, te vuelvo a preguntar mañana. Si huele o se ve raro, mejor tíralo."
+            "De acuerdo, te vuelvo a preguntar mañana. Si huele o se ve raro, mejor no te arriesgues."
         )
     if action == "pending":
         return Message(
-            f"Tu {data.get('food') or 'alimento'} sigue en el refri como vencido. "
-            "Escribe /refri para revisarlo."
+            f"«{data.get('food') or 'Ese alimento'}» sigue en el refri, en la lista de vencidos. "
+            "Escribe /refri para revisar."
         )
     if action == "skip_date":
         return _with_question(f"Listo. No registré {data.get('food')}.", data.get("next"))
@@ -233,7 +233,7 @@ def _consumed(data):
 def _list_line(item):
     left = item["days_left"]
     when = "ya venció" if left <= 0 else f"vence en {_days(left)}"
-    who = f" (lo guardó {item['stored_by_name']})" if item.get("stored_by_name") else ""
+    who = f" (guardó {item['stored_by_name']})" if item.get("stored_by_name") else ""
     pantry = "🥫 " if item.get("pantry") else ""
     return f"• {pantry}{item['food']}: {when}{who}"
 
@@ -293,8 +293,8 @@ def _link(data):
 
 def _unanswered(data):
     text = (
-        f"No supe qué pasó con tu {data['food']}, así que lo dejé en el refri marcado "
-        "como vencido. Cuando puedas, escribe /refri para revisarlo."
+        f"No supe qué pasó con «{data['food']}», así que sigue en el refri, en la lista "
+        "de vencidos. Cuando puedas, escribe /refri para revisar."
     )
     if not data.get("others"):
         text += f"\n\n{FAMILY_INVITATION}"
@@ -304,8 +304,8 @@ def _unanswered(data):
 def _escalation(data):
     name = data.get("owner_name") or "Alguien de tu familia"
     return Message(
-        f"👋 {name} tiene {data['food']} vencido en el refri y no ha respondido. "
-        "Escribe /refri para revisarlo, o pregúntale si lo sigue teniendo."
+        f"👋 {name} tiene algo vencido en el refri y no ha respondido: {data['food']}. "
+        "Escribe /refri para revisar, o pregúntale qué pasó."
     )
 
 

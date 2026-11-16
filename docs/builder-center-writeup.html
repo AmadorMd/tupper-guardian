@@ -215,6 +215,7 @@
 
 <h2>How one food lives and ends</h2>
 <p>Every stored food gets its own long-lived execution. This is where Step Functions earns its place over a simple scheduler. The execution waits, re-checks reality, asks a human, waits for the answer, and decides what happens next.</p>
+<p><strong>Why not just EventBridge Scheduler?</strong> A scheduler can fire a reminder at a time. It can't wait for a person's answer, re-ask tomorrow, take turns with other questions, or escalate to the family when nobody replies. Here all of that is one visible, durable workflow per food, and paused waits cost no compute.</p>
 
 <figure id="fig-lifecycle">
 <div class="diagram">
@@ -379,6 +380,26 @@
   <li><strong>Least privilege.</strong> Each function and the state machine get only the actions they use. The invite link uses a random single-use code, not a chat id, so a guessed id can't add a stranger to a family's fridge.</li>
   <li><strong>Demo mode, said out loud.</strong> One parameter sets the length of a "day" (86,400 s in real use, about 20 s in the video), so a whole week can be shown in a few minutes.</li>
 </ul>
+
+<h2>How I made sure it works</h2>
+<ul>
+  <li><strong>181 automated tests</strong> (pytest, with DynamoDB mocked by moto and fake Bedrock and Telegram clients) cover every rule: dates, races between a button and a text message, the question turn, the shared fridge, shopping lists, retries and pantry dates. From the second day on, every rule got a failing test before its code.</li>
+  <li><strong>The state machine is checked against AWS before each deploy:</strong> <code>ValidateStateMachineDefinition</code> for the whole definition and <code>TestState</code> for single states with tricky JSONata, such as a child execution's name and input, or a message with no date.</li>
+  <li><strong>Structural tests on the workflow itself:</strong> every transition points to a real state, every state is reachable and can finish, every variable is assigned before it is read, and the status is re-read after every <code>Wait</code>.</li>
+  <li><strong>Live runs in demo mode</strong> on Telegram and AWS, with the executions inspected in the console. The first round surfaced the "questions arrive all at once" problem that led to the question turn.</li>
+  <li><strong>Built to fail safely:</strong> retries on transient Lambda errors, idempotent execution names, conditional writes, a question turn that expires on its own, and an error message to the user instead of silence.</li>
+</ul>
+
+<h2>Reuse the pattern</h2>
+<p>Strip out the food and what remains is a general pattern: <strong>remind, ask a human, wait for the answer, escalate to someone else, and never lose the item</strong>. It fits anything with a deadline and a person who might not answer:</p>
+<ul>
+  <li>medication refills for an older relative;</li>
+  <li>documents, insurance or warranties about to expire;</li>
+  <li>equipment maintenance in a small business;</li>
+  <li>a daily "are you OK?" check-in that alerts the family when nobody replies.</li>
+</ul>
+<p>To reuse it, swap the <code>ShelfLife</code> table for your own durations and rewrite the messages. The workflow, the task-token question, the one-question-at-a-time turn and the family escalation stay the same. Deploying is one command, <code>./scripts/deploy.sh</code>, with only the AWS CLI and Python 3. Two parameters, <code>SECONDS_PER_DAY</code> and <code>ASK_TIMEOUT_SECONDS</code>, make the timings short enough to demo.</p>
+<p><strong>Source code:</strong> <em>repository link goes here</em></p>
 
 <h2>What I learned</h2>
 <ul>

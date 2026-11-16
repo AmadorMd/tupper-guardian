@@ -62,9 +62,9 @@ def test_unanswered_item_stays_and_invites_family_only_when_the_fridge_is_not_sh
     alone = messages.build("unanswered", {"food": "caldo", "others": []}).text
     shared = messages.build("unanswered", {"food": "caldo", "others": ["222"]}).text
 
-    assert "lo dejé en el refri" in alone and "/refri" in alone
+    assert "sigue en el refri" in alone and "/refri" in alone
     assert "/familiar" in alone and "compartirle el refri" in alone
-    assert "/familiar" not in shared and "lo dejé en el refri" in shared
+    assert "/familiar" not in shared and "sigue en el refri" in shared
 
 
 def test_question_asked_by_a_relative_reaches_the_token_of_the_shared_fridge(sent, tables):
@@ -85,7 +85,7 @@ def test_one_notification_can_reach_several_members(sent):
     )
 
     assert [payload["chat_id"] for _, payload in sent] == ["222", "333"]
-    assert all("Lupita tiene caldo vencido" in payload["text"] for _, payload in sent)
+    assert all("Lupita tiene algo vencido en el refri" in payload["text"] for _, payload in sent)
 
 
 def test_question_says_how_many_more_are_waiting():
@@ -121,7 +121,7 @@ def test_list_groups_by_urgency_and_offers_to_review_expired_items():
     lines = message.text.splitlines()
 
     assert lines.index("⚠️ Vencidos, por revisar:") < lines.index("• pollo: ya venció")
-    assert lines.index("⏰ Vencen pronto:") < lines.index("• salsa: vence en 1 día (lo guardó Ana)")
+    assert lines.index("⏰ Vencen pronto:") < lines.index("• salsa: vence en 1 día (guardó Ana)")
     assert lines.index("✅ En buen estado:") < lines.index("• queso: vence en 9 días")
     assert message.buttons == [[{"text": "🔎 Revisar vencidos (1)", "callback_data": "r|0"}]]
 
@@ -225,7 +225,7 @@ def test_voice_note_follows_the_text_when_enabled(sent, monkeypatch):
 
     notify.handler({"chat_id": 111, "kind": "reminder", "data": TUPPER})
 
-    assert voices == [(111, "Tu caldo vence mañana. Aprovéchalo hoy.".encode())]
+    assert voices == [(111, "Mañana vence: caldo. Aprovecha hoy.".encode())]
 
 
 @pytest.mark.parametrize(
@@ -244,8 +244,8 @@ def test_voice_note_follows_the_text_when_enabled(sent, monkeypatch):
         ("resolved", {"action": "already"}, "ya estaba resuelto"),
         ("resolved", {"action": "snooze"}, "mañana"),
         ("unanswered", {"food": "caldo"}, "vencido"),
-        ("escalation", {"food": "caldo", "owner_name": "Lupita"}, "Lupita tiene caldo vencido"),
-        ("escalation", {"food": "caldo", "owner_name": ""}, "Alguien de tu familia tiene caldo"),
+        ("escalation", {"food": "caldo", "owner_name": "Lupita"}, "Lupita tiene algo vencido en el refri"),
+        ("escalation", {"food": "caldo", "owner_name": ""}, "Alguien de tu familia tiene algo vencido"),
         ("voice_unsupported", {}, "texto y fotos"),
         ("something_new", {}, "No te entendí"),
     ],
@@ -300,7 +300,7 @@ def test_shopping_list_confirmation_names_every_food_and_the_source():
 
     assert "Anoté 2 alimentos" in message.text
     assert "• leche: 7 días" in message.text
-    assert "• chayote: 2 días (no lo tengo en mi tabla, usé un tiempo corto)" in message.text
+    assert "• chayote: 2 días (no está en mi tabla, usé un tiempo corto)" in message.text
     assert "FoodKeeper" in message.text
     assert "No necesitan refrigeración, consulta su fecha de caducidad: arroz, atún" in message.text
     assert message.speech and "2 alimentos" in message.speech
@@ -330,8 +330,8 @@ def test_pantry_food_is_stored_with_a_date_question_and_a_skip_button():
         "stored", {"food": "atún", "awaiting_date": True, "ask_date": DATE_QUESTION}
     )
 
-    assert "atún no necesita refrigeración" in message.text
-    assert "¿Cuándo caduca tu atún?" in message.text and "foto" in message.text
+    assert "No necesita refrigeración: «atún»" in message.text
+    assert "¿Cuál es la fecha de caducidad de «atún»?" in message.text and "foto" in message.text
     assert message.buttons == [[{"text": "⏭️ No registrar", "callback_data": "x|abc123"}]]
 
 
@@ -340,7 +340,7 @@ def test_shopping_list_asks_for_the_first_pantry_date():
         "stored_list", {"items": [], "skipped": ["atún"], "ask_date": DATE_QUESTION}
     )
 
-    assert "¿Cuándo caduca tu atún?" in message.text
+    assert "¿Cuál es la fecha de caducidad de «atún»?" in message.text
     assert message.buttons[0][0]["callback_data"] == "x|abc123"
 
 
@@ -369,17 +369,47 @@ def test_date_answer_asks_the_next_food():
         {"outcome": "dated", "tracked": True, "food": "arroz", "date": "2027-03-15", "next": DATE_QUESTION},
     )
 
-    assert "¿Cuándo caduca tu atún?" in message.text
+    assert "¿Cuál es la fecha de caducidad de «atún»?" in message.text
     assert message.buttons[0][0]["callback_data"] == "x|abc123"
 
 
 def test_skip_reply_confirms_and_asks_the_next_food():
     message = messages.build("resolved", {"action": "skip_date", "food": "arroz", "next": DATE_QUESTION})
 
-    assert "No registré arroz" in message.text and "¿Cuándo caduca tu atún?" in message.text
+    assert "No registré arroz" in message.text and "¿Cuál es la fecha de caducidad de «atún»?" in message.text
 
 
 def test_list_marks_pantry_food():
     text = messages.build("list", {"items": [{"food": "atún", "days_left": 30, "pantry": True}]}).text
 
     assert "🥫 atún: vence en 30 días" in text
+
+
+PLURAL = {"food": "fresas", "tupper_id": "abc123", "fridge_key": "1", "item_id": "T#abc123"}
+
+
+@pytest.mark.parametrize(
+    ("kind", "data"),
+    [
+        ("reminder", PLURAL),
+        ("ask", PLURAL),
+        ("ask", {**PLURAL, "last_chance": True}),
+        ("resolved", {"action": "pending", "food": "fresas"}),
+        ("resolved", {"action": "eaten", "food": "fresas", "overdue": True}),
+        ("resolved", {"action": "snooze"}),
+        ("unanswered", {"food": "fresas", "others": []}),
+        ("escalation", {"food": "fresas", "owner_name": "Lupita"}),
+        ("stored", {"food": "frijoles", "awaiting_date": True, "ask_date": {"food": "frijoles", "tupper_id": "a1"}}),
+        ("dated", {"outcome": "past", "food": "frijoles"}),
+        ("dated", {"outcome": "dated", "tracked": False, "food": "frijoles", "date": "2028-01-01", "next": {}}),
+        ("list", {"items": [{"food": "fresas", "days_left": 2, "stored_by_name": "Ana"}]}),
+        ("stored_list", {"items": [{"food": "fresas", "days": 2, "default_used": True}]}),
+    ],
+)
+def test_messages_read_right_with_plural_or_feminine_food(kind, data):
+    message = messages.build(kind, data)
+    for text in (message.text, message.speech or ""):
+        for wrong in ("Tu fresas", "tu fresas", "tu frijoles", "con él", "frijoles no necesita",
+                      "fresas vencido", "Aprovéchalo", "tíralo", "lo dejé", "lo guardó",
+                      "no lo tengo", "lo verás", "caduca tu"):
+            assert wrong not in text, (kind, wrong, text)
