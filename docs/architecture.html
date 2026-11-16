@@ -260,7 +260,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   <ul>
     <li><strong>“Sigue ahí” postpones the question one day, twice at most.</strong> The workflow counts the questions in a variable and flags the third as <code>last_chance</code>.</li>
     <li><strong>The last call has two buttons only:</strong> “Ya me lo comí” and “Ya lo tiré”. The goal is to always learn how the food ended up.</li>
-    <li><strong>Eating food a full day past its deadline gets a health message.</strong> The reply, sent as text and voice, says that throwing food away is hard and that this is about health.</li>
+    <li><strong>Eating food after saying it was still there past its deadline, or after it was left for review, gets a health message.</strong> Answering the reminder or the first deadline question counts as on time, because a button can't tell when the food was eaten. The reply, sent as text and voice, says that throwing food away is hard and that this is about health.</li>
     <li><strong>An unanswered item is escalated, not removed.</strong> It stays in the fridge flagged for review, and every other member of the fridge gets a message. With nobody else in the fridge, the bot explains what <code>/familiar</code> is for and invites the user to share it.</li>
     <li><strong>Flagged items are reviewed one by one.</strong> The list offers a “Revisar vencidos” button. Each answer brings the next flagged item, asked in neutral words because a relative may be the one answering.</li>
     <li><strong>A second tap is harmless.</strong> The conditional write fails and the bot answers that the item was already resolved.</li>

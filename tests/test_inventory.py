@@ -182,16 +182,23 @@ def test_resolve_eaten_closes_the_item_and_returns_its_token(tables):
     assert stored_item(tables, result)["status"] == "CONSUMED"
 
 
-def test_eating_right_at_the_deadline_is_not_overdue(tables, monkeypatch):
-    result = store()  # 3 days
-    monkeypatch.setattr(inventory, "_now", lambda: NOW + 4 * DAY - 1)
+def test_eating_before_or_at_the_deadline_question_is_on_time(tables, monkeypatch):
+    early, asked = store(), store(food="arroz rojo")
+    set_token(tables, asked)
+    # The clock can't tell when food was eaten: a slow answer to the first
+    # question is still "on time" (L18).
+    monkeypatch.setattr(inventory, "_now", lambda: NOW + 10 * DAY)
 
-    assert "overdue" not in call("resolve", data=f"e|{result['tupper_id']}")
+    assert "overdue" not in call("resolve", data=f"e|{early['tupper_id']}")
+    assert "overdue" not in call("resolve", data=f"e|{asked['tupper_id']}")
 
 
-def test_eating_a_day_past_the_deadline_is_overdue(tables, monkeypatch):
+def test_eating_after_saying_it_was_still_there_is_overdue(tables):
     by_button, by_text = store(), store(food="arroz rojo")
-    monkeypatch.setattr(inventory, "_now", lambda: NOW + 4 * DAY)
+    for item in (by_button, by_text):
+        set_token(tables, item)
+        assert call("resolve", data=f"s|{item['tupper_id']}")["action"] == "snooze"
+        assert stored_item(tables, item)["snoozed"] is True
 
     resolved = call("resolve", data=f"e|{by_button['tupper_id']}")
     consumed = call("consume", food="arroz")
@@ -200,6 +207,13 @@ def test_eating_a_day_past_the_deadline_is_overdue(tables, monkeypatch):
     assert consumed["found"] is True and consumed["overdue"] is True
     assert stored_item(tables, by_button)["status"] == "CONSUMED"
     assert stored_item(tables, by_text)["status"] == "CONSUMED"
+
+
+def test_eating_food_left_for_review_is_overdue(tables):
+    result = store()
+    escalate(result)
+
+    assert call("resolve", data=f"e|{result['tupper_id']}")["overdue"] is True
 
 
 def test_resolve_tossed_discards_the_item(tables):

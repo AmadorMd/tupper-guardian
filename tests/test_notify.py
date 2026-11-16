@@ -413,3 +413,10 @@ def test_messages_read_right_with_plural_or_feminine_food(kind, data):
                       "fresas vencido", "Aprovéchalo", "tíralo", "lo dejé", "lo guardó",
                       "no lo tengo", "lo verás", "caduca tu"):
             assert wrong not in text, (kind, wrong, text)
+
+
+def test_reminder_lets_you_say_it_was_already_eaten_or_thrown_away():
+    message = messages.build("reminder", TUPPER)
+
+    data = [button["callback_data"] for row in message.buttons for button in row]
+    assert data == [f"e|{TUPPER['tupper_id']}", f"t|{TUPPER['tupper_id']}"]

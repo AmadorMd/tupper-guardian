@@ -109,9 +109,9 @@
   <li><strong>Tell it or show it.</strong> "Guardé caldo de pollo en el refri" (I put chicken soup in the fridge), or a photo of the container. A multimodal model on Amazon Bedrock recognizes the food.</li>
   <li><strong>Send the shopping list.</strong> A typed list or a photo of the receipt becomes one tracked item per food.</li>
   <li><strong>Food outside the fridge counts too.</strong> For a can or a bag of rice the bot asks for the printed expiry date. You can type it or send a photo of the label.</li>
-  <li><strong>It reminds you</strong> the day before something expires, then <strong>asks what happened</strong> with three buttons: "I ate it", "I threw it away", "It's still there".</li>
+  <li><strong>It reminds you</strong> the day before something expires (with buttons, in case it's already gone), then <strong>asks what happened</strong> with three buttons: "I ate it", "I threw it away", "It's still there".</li>
   <li><strong>Nothing disappears by silence.</strong> If nobody answers, the food stays on the list flagged for review and the rest of the family is told. A son or daughter can help their parents check the fridge from their own phone.</li>
-  <li><strong>Health first.</strong> If someone says they ate food a full day past its date, the bot doesn't celebrate. It gently explains that eating it can be harmful even if it looks fine.</li>
+  <li><strong>Health first.</strong> If someone eats food after telling the bot it was still there past its date, or after it was left for review, the bot doesn't celebrate. It gently explains that eating it can be harmful even if it looks fine.</li>
   <li><strong>Voice.</strong> Confirmations and alerts also arrive as a voice note (Amazon Polly, Mexican Spanish), which helps older users.</li>
 </ul>
 <blockquote>The AI understands the message; the expiry date comes from food-safety data. The model never decides how long food is safe.</blockquote>
@@ -273,7 +273,7 @@
     <path d="M356,290 C356,250 330,220 310,206" fill="none" stroke="#ca8a04" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#a2)"/>
     <text x="400" y="246" font-size="11" fill="#92400e">wait a day, ask again</text>
     <text x="480" y="410" font-size="13" fill="#334155">The third question is a last call: only "I ate it 🤢" and "I threw it away", so we always learn the ending.</text>
-    <text x="480" y="432" font-size="13" fill="#334155">Eating food a full day past its date gets a health message, not a celebration.</text>
+    <text x="480" y="432" font-size="13" fill="#334155">Eating it after "It's still there" or after review gets a health message, not a celebration.</text>
   </g>
 </svg>
 </div>

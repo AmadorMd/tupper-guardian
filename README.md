@@ -37,9 +37,10 @@ flowchart LR
 4. **Human in the loop.** At expiry the bot asks whoever stored the item what
    happened, with buttons, and the workflow pauses on a task token. A button
    press releases it. "Sigue ahí" postpones the question a day, twice at
-   most: the third question is a last call without that button. Eating
-   something a full day past its deadline gets a health message instead of
-   a confirmation.
+   most: the third question is a last call without that button. The
+   day-before reminder has "Ya me lo comí" / "Ya lo tiré" buttons too. Eating
+   food after saying it was still there past its deadline, or after it was
+   left for review, gets a health message instead of a confirmation.
 5. **One question at a time.** Each person has a single question turn, so
    items that expire together are asked about one by one instead of in a
    burst that gets lost in the chat.

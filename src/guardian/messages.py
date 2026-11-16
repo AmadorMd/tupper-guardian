@@ -156,7 +156,13 @@ def _stored_list(data):
 
 def _reminder(data):
     sentence = f"Mañana vence: {data['food']}. Aprovecha hoy."
-    return Message(f"⏰ {sentence}", speech=sentence)
+    tupper_id = data["tupper_id"]
+    # Lets people say it is already gone, before its date (L18).
+    buttons = [
+        [{"text": "😋 Ya me lo comí", "callback_data": f"{BUTTON_EATEN}|{tupper_id}"}],
+        [{"text": "🗑️ Ya lo tiré", "callback_data": f"{BUTTON_TOSSED}|{tupper_id}"}],
+    ]
+    return Message(f"⏰ {sentence}", buttons=buttons, speech=sentence)
 
 
 def _waiting(count):

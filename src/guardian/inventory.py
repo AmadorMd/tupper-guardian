@@ -126,7 +126,11 @@ def _asker(item, fridge_key):
 
 
 def _is_overdue(item):
-    return _now() >= int(item["expires_epoch"]) + _seconds_per_day()
+    """Eaten past its date, as far as the bot can know: after someone said it
+    was still there past the deadline, or after it was left unanswered. A
+    button can't tell when food was eaten, so the clock alone never decides
+    (L18): answering the deadline question, or the reminder, is on time."""
+    return bool(item.get("snoozed") or item.get("needs_review"))
 
 
 def _active_tuppers(fridge_key, status="ACTIVE"):
@@ -148,14 +152,14 @@ def _active_tuppers(fridge_key, status="ACTIVE"):
 
 
 def _close(fridge_key, item_id, new_status):
-    """Move an ACTIVE item to `new_status` (or just clear its token when
-    `new_status` is None). Returns the previous item, or None if it was not
+    """Move an ACTIVE item to `new_status` (or, when `new_status` is None,
+    clear its token and remember it was snoozed past its deadline). Returns the previous item, or None if it was not
     ACTIVE anymore."""
-    update = "REMOVE task_token"
-    values = {":active": "ACTIVE"}
+    update = "SET snoozed = :yes REMOVE task_token"
+    values = {":active": "ACTIVE", ":yes": True}
     if new_status is not None:
         update = "SET #s = :new REMOVE task_token, turn_token"
-        values[":new"] = new_status
+        values = {":active": "ACTIVE", ":new": new_status}
     response = _conditional(
         lambda: _tuppers().update_item(
             Key={"chat_id": fridge_key, "item_id": item_id},
